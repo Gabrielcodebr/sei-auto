@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Ambiente virtual
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Logs
+*.log
+
+# Documentos (IMPORTANTE: não versionar arquivos sensíveis)
+documentos/
+*.pdf
+*.docx
+*.xlsx
+*.xls
+
+# Configurações locais (caso você personalize)
+config_local.py
+
+# Arquivos temporários
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Sistema operacional
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Arquivos de teste
+test/
+tests/
+*_test.py
+test_*.py
