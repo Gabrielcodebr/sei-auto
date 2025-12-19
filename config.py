@@ -12,7 +12,7 @@ TESSERACT_PATH = r"C:\Users\Gabriel Fatec Itu\AppData\Local\Programs\Tesseract-O
 
 # Caminho da pasta bin do Poppler
 # Ajuste para o caminho onde você extraiu o Poppler
-POPPLER_PATH = r"C:\Programas\poppler-25.12.0\Library\bin"
+# POPPLER_PATH = r"C:\Programas\poppler-25.12.0\Library\bin" CASO PRECISE
 
 # ===== PASTAS DO PROJETO =====
 
@@ -69,9 +69,7 @@ def validar_configuracoes():
     if not os.path.exists(TESSERACT_PATH):
         erros.append(f"Tesseract não encontrado em: {TESSERACT_PATH}")
     
-    # Verifica Poppler
-    if not os.path.exists(POPPLER_PATH):
-        erros.append(f"Poppler não encontrado em: {POPPLER_PATH}")
+    # REMOVIDO: Verifica Poppler (não precisa mais!)
     
     # Verifica pasta de documentos
     if not os.path.exists(DOCUMENTOS_DIR):

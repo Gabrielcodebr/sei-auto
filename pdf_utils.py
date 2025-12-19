@@ -1,10 +1,13 @@
 """
 Funções para manipulação de arquivos PDF
+ATUALIZADO: Usa PyMuPDF (fitz) ao invés de pdf2image
+Não precisa mais do Poppler!
 """
 
 import os
-from pdf2image import convert_from_path
+import fitz  # PyMuPDF
 from PIL import Image
+import io
 import config
 import ocr_utils
 
@@ -24,21 +27,33 @@ def renderizar_primeira_pagina_pdf(pdf_path, dpi=None):
         if dpi is None:
             dpi = config.PDF_DPI
         
-        # Converte apenas a primeira página
-        imagens = convert_from_path(
-            pdf_path,
-            dpi=dpi,
-            first_page=1,
-            last_page=1,
-            poppler_path=config.POPPLER_PATH
-        )
+        # Abre o PDF com PyMuPDF
+        doc = fitz.open(pdf_path)
         
-        if imagens:
-            return imagens[0]
-        else:
-            print(f"❌ Nenhuma página encontrada no PDF: {pdf_path}")
+        if len(doc) == 0:
+            print(f"❌ PDF sem páginas: {pdf_path}")
+            doc.close()
             return None
-            
+        
+        # Pega a primeira página
+        page = doc[0]
+        
+        # Calcula zoom baseado no DPI
+        # 72 DPI é o padrão do PyMuPDF
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        
+        # Renderiza a página como imagem
+        pix = page.get_pixmap(matrix=mat)
+        
+        # Converte para PIL.Image
+        img_data = pix.tobytes("png")
+        imagem = Image.open(io.BytesIO(img_data))
+        
+        doc.close()
+        
+        return imagem
+        
     except Exception as e:
         print(f"❌ Erro ao renderizar PDF: {e}")
         return None
@@ -359,11 +374,13 @@ def extrair_data_extrato(pdf_path):
 # ===== TESTES =====
 
 if __name__ == "__main__":
-    print("Testando funções de PDF...")
+    print("="*70)
+    print("Testando funções de PDF com PyMuPDF")
+    print("="*70)
     
     # Verifica se a pasta de documentos existe
     if not os.path.exists(config.DOCUMENTOS_DIR):
-        print(f"⚠️ Pasta de documentos não encontrada: {config.DOCUMENTOS_DIR}")
+        print(f"\n⚠️ Pasta de documentos não encontrada: {config.DOCUMENTOS_DIR}")
         print("Crie a pasta e adicione alguns PDFs para testar")
     else:
         # Lista arquivos PDF na pasta
@@ -376,16 +393,24 @@ if __name__ == "__main__":
             pdf_teste = os.path.join(config.DOCUMENTOS_DIR, pdfs[0])
             
             # Testa renderização
+            print("\n1️⃣ Testando renderização...")
             img = renderizar_primeira_pagina_pdf(pdf_teste)
             if img:
-                print(f"✅ PDF renderizado com sucesso: {img.size}")
+                print(f"   ✅ PDF renderizado: {img.size} pixels, modo {img.mode}")
+            else:
+                print(f"   ❌ Falha ao renderizar")
             
             # Testa extração de texto
+            print("\n2️⃣ Testando extração de texto...")
             texto = extrair_texto_completo_pdf(pdf_teste)
             if texto:
-                print(f"✅ Texto extraído: {len(texto)} caracteres")
-                print(f"Primeiros 100 chars: {texto[:100]}...")
+                print(f"   ✅ Texto extraído: {len(texto)} caracteres")
+                print(f"   Primeiros 100 chars: {texto[:100]}...")
+            else:
+                print(f"   ⚠️ Nenhum texto extraído")
         else:
-            print("⚠️ Nenhum PDF encontrado na pasta documentos/")
+            print("\n⚠️ Nenhum PDF encontrado na pasta documentos/")
     
-    print("\n✅ Testes concluídos!")
+    print("\n" + "="*70)
+    print("✅ Testes concluídos!")
+    print("="*70)
