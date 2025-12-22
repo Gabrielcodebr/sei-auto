@@ -1,0 +1,10 @@
+# Coordenadas calibradas para SEI Automation
+# Resolução: Size(width=1600, height=900)
+# Data: 22/12/2025 10:38:51
+
+btn_incluir_doc = (354, 180)
+barra_pesquisa_lista = (761, 380)
+btn_salvar_form = (1466, 751)
+radio_publico = (1122, 667)
+btn_salvar_editor = (230, 212)
+area_edicao = (824, 679)

@@ -21,6 +21,14 @@ pyautogui.FAILSAFE = True  # Mover mouse para canto superior esquerdo cancela
 class SEIAutomation:
     """Classe principal para automação do SEI"""
     
+    # Coordenadas calibradas (ajustadas para resolução 1600x900)
+    COORD_BTN_INCLUIR_DOC = (354, 180)
+    COORD_BARRA_PESQUISA = (761, 380)
+    COORD_BTN_SALVAR_FORM = (1466, 751)
+    COORD_RADIO_PUBLICO = (1122, 667)
+    COORD_BTN_SALVAR_EDITOR = (230, 212)
+    COORD_AREA_EDICAO = (824, 679)
+    
     def __init__(self, pasta_documentos=None, pular_primeiros=0):
         """
         Args:
@@ -70,9 +78,7 @@ class SEIAutomation:
         """Clica no botão de incluir documento (ícone tracejado)"""
         print("\n🖱️ Clicando em 'Incluir Documento'...")
         
-        # Posição aproximada baseada no print (ajustar se necessário)
-        # Ícone fica na barra superior, mais à esquerda
-        pyautogui.click(335, 95)
+        pyautogui.click(self.COORD_BTN_INCLUIR_DOC)
         self.aguardar(1.5)
         
         print("✅ Lista de documentos aberta")
@@ -88,7 +94,7 @@ class SEIAutomation:
         print(f"🔍 Buscando: '{texto_busca}'")
         
         # Clica na barra de pesquisa
-        pyautogui.click(320, 20)
+        pyautogui.click(self.COORD_BARRA_PESQUISA)
         self.aguardar(0.5)
         
         # Limpa e digita
@@ -165,16 +171,8 @@ class SEIAutomation:
             pyautogui.scroll(-400)
             self.aguardar(0.2)
         
-        # Clica no radio button Público (ou usa teclado)
-        # Opção por teclado é mais confiável
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        # Seleciona Público (terceira opção)
-        pyautogui.press('right')
-        pyautogui.press('right')
+        # Clica no radio button Público usando coordenada calibrada
+        pyautogui.click(self.COORD_RADIO_PUBLICO)
         self.aguardar(0.3)
         
         print("✅ Público selecionado")
@@ -183,14 +181,8 @@ class SEIAutomation:
         """Clica no botão Salvar"""
         print("💾 Clicando em Salvar...")
         
-        # Rola um pouco mais para garantir que botão está visível
-        pyautogui.scroll(-200)
-        self.aguardar(0.3)
-        
-        # Tab até botão Salvar e Enter
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        pyautogui.press('enter')
+        # Usa coordenada calibrada
+        pyautogui.click(self.COORD_BTN_SALVAR_FORM)
         
         self.aguardar(2.5)
         print("✅ Salvo")
@@ -223,8 +215,8 @@ class SEIAutomation:
             
             self.aguardar(0.5)
             
-            # Clica na área de edição (centro da tela)
-            pyautogui.click(650, 450)
+            # Clica na área de edição usando coordenada calibrada
+            pyautogui.click(self.COORD_AREA_EDICAO)
             self.aguardar(0.3)
             
             # Cola
@@ -250,8 +242,8 @@ class SEIAutomation:
         pyperclip.copy(texto)
         self.aguardar(0.3)
         
-        # Clica na área de edição
-        pyautogui.click(650, 450)
+        # Clica na área de edição usando coordenada calibrada
+        pyautogui.click(self.COORD_AREA_EDICAO)
         self.aguardar(0.3)
         
         # Seleciona tudo e substitui
@@ -266,8 +258,8 @@ class SEIAutomation:
         """Clica no botão Salvar do editor (popup)"""
         print("💾 Salvando no editor...")
         
-        # Botão Salvar fica no canto superior esquerdo do popup
-        pyautogui.click(53, 92)
+        # Usa coordenada calibrada
+        pyautogui.click(self.COORD_BTN_SALVAR_EDITOR)
         self.aguardar(3)
         
         print("✅ Editor salvo e fechado")
