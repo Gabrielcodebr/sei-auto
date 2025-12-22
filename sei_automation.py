@@ -26,8 +26,8 @@ class SEIAutomation:
     COORD_BARRA_PESQUISA = (761, 380)
     COORD_BTN_SALVAR_FORM = (1466, 751)
     COORD_RADIO_PUBLICO = (1122, 667)
-    COORD_BTN_SALVAR_EDITOR = (230, 212)
-    COORD_AREA_EDICAO = (824, 679)
+    COORD_BTN_SALVAR_EDITOR = (230, 212)  # Não usado mais (usa Ctrl+Alt+S)
+    COORD_AREA_EDICAO = (817, 589)  # Popup maximizado
     
     def __init__(self, pasta_documentos=None, pular_primeiros=0):
         """
@@ -185,7 +185,19 @@ class SEIAutomation:
         pyautogui.click(self.COORD_BTN_SALVAR_FORM)
         
         self.aguardar(2.5)
-        print("✅ Salvo")
+        
+        # Aguarda popup do editor abrir
+        print("  ⏳ Aguardando editor abrir...")
+        self.aguardar(1)
+        
+        # Maximiza o popup: Alt+Espaço -> X
+        print("  🖼️ Maximizando popup...")
+        pyautogui.hotkey('alt', 'space')
+        self.aguardar(0.3)
+        pyautogui.press('x')
+        self.aguardar(0.5)
+        
+        print("✅ Salvo e editor aberto")
     
     def colar_imagem_editor(self, imagem_obj):
         """
@@ -219,7 +231,11 @@ class SEIAutomation:
             pyautogui.click(self.COORD_AREA_EDICAO)
             self.aguardar(0.3)
             
-            # Cola
+            # IMPORTANTE: Seleciona todo o conteúdo antes de colar
+            pyautogui.hotkey('ctrl', 'a')
+            self.aguardar(0.2)
+            
+            # Cola (substitui o conteúdo selecionado)
             pyautogui.hotkey('ctrl', 'v')
             self.aguardar(1.5)
             
@@ -255,12 +271,24 @@ class SEIAutomation:
         print("✅ Texto colado")
     
     def clicar_salvar_editor(self):
-        """Clica no botão Salvar do editor (popup)"""
+        """Salva e fecha o editor (popup)"""
         print("💾 Salvando no editor...")
         
-        # Usa coordenada calibrada
-        pyautogui.click(self.COORD_BTN_SALVAR_EDITOR)
+        # Clica na área do editor para garantir que está focado
+        pyautogui.click(self.COORD_AREA_EDICAO)
+        self.aguardar(0.3)
+        
+        # Salva usando atalho do SEI: Ctrl+Alt+S
+        pyautogui.hotkey('ctrl', 'alt', 's')
+        
+        # Aguarda o documento ser salvo
+        print("  ⏳ Aguardando salvar...")
         self.aguardar(3)
+        
+        # Fecha o popup: Ctrl+W
+        print("  🚪 Fechando popup...")
+        pyautogui.hotkey('ctrl', 'w')
+        self.aguardar(1.5)
         
         print("✅ Editor salvo e fechado")
     
