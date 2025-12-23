@@ -1,0 +1,11 @@
+# Coordenadas para DOCUMENTOS EXTERNOS
+# Resolução: Size(width=1600, height=900)
+# Data: 23/12/2025 10:15:44
+
+dropdown_tipo_externo = (672, 353)
+campo_data = (1044, 353)
+campo_numero = (395, 418)
+campo_nome_arvore = (595, 411)
+radio_nato_digital = (413, 479)
+radio_digitalizado = (414, 507)
+btn_anexar_arquivo = (405, 603)

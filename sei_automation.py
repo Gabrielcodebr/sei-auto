@@ -29,6 +29,16 @@ class SEIAutomation:
     COORD_BTN_SALVAR_EDITOR = (230, 212)  # Não usado mais (usa Ctrl+Alt+S)
     COORD_AREA_EDICAO = (817, 589)  # Popup maximizado
     
+    # Coordenadas para DOCUMENTOS EXTERNOS
+    COORD_DROPDOWN_TIPO_EXTERNO = (672, 353)
+    COORD_CAMPO_DATA = (1044, 353)
+    COORD_CAMPO_NUMERO = (395, 418)
+    COORD_CAMPO_NOME_ARVORE = (595, 411)
+    COORD_RADIO_NATO_DIGITAL = (413, 479)
+    COORD_RADIO_DIGITALIZADO = (414, 507)
+    COORD_DROPDOWN_TIPO_CONFERENCIA = (1056, 478)
+    COORD_BTN_ANEXAR_ARQUIVO = (405, 603)
+    
     def __init__(self, pasta_documentos=None, pular_primeiros=0):
         """
         Args:
@@ -113,15 +123,15 @@ class SEIAutomation:
     def selecionar_dropdown_tipo_externo(self, tipo_documento):
         """
         Seleciona tipo no dropdown gigante de documentos externos
-        Usa digitação rápida (padrão de dropdown)
+        Usa coordenada e digitação rápida
         
         Args:
             tipo_documento: Nome do tipo (ex: "Nota de empenho")
         """
         print(f"📋 Selecionando tipo: '{tipo_documento}'")
         
-        # Clica no dropdown
-        pyautogui.click(315, 130)
+        # Clica no dropdown usando coordenada calibrada
+        pyautogui.click(self.COORD_DROPDOWN_TIPO_EXTERNO)
         self.aguardar(0.8)
         
         # Digita rapidamente (dropdown filtra automaticamente)
@@ -138,21 +148,21 @@ class SEIAutomation:
         
         print(f"✅ Tipo selecionado")
     
-    def preencher_campo(self, texto, tabs_antes=0, limpar=True):
+    def preencher_campo_clicando(self, coord, texto, limpar=True):
         """
-        Preenche campo atual com texto
+        Preenche campo clicando em uma coordenada específica
         
         Args:
+            coord: Tupla (x, y) da coordenada
             texto: Texto a preencher
-            tabs_antes: Número de TABs antes de preencher
             limpar: Se True, limpa o campo antes
         """
-        for _ in range(tabs_antes):
-            pyautogui.press('tab')
-            self.aguardar(0.2)
+        # Clica no campo
+        pyautogui.click(coord)
+        self.aguardar(0.3)
         
         if limpar:
-            # Limpa campo atual
+            # Limpa campo
             pyautogui.hotkey('ctrl', 'a')
             pyautogui.press('delete')
             self.aguardar(0.1)
@@ -302,8 +312,8 @@ class SEIAutomation:
         """
         print(f"📎 Anexando: {os.path.basename(arquivo_path)}")
         
-        # Clica no botão "Anexar Arquivo..."
-        pyautogui.click(74, 198)
+        # Clica no botão "Anexar Arquivo..." usando coordenada calibrada
+        pyautogui.click(self.COORD_BTN_ANEXAR_ARQUIVO)
         self.aguardar(2)
         
         # Janela de seleção do Windows abre
@@ -311,7 +321,6 @@ class SEIAutomation:
         self.aguardar(1)
         
         # Digita o caminho completo do arquivo
-        # IMPORTANTE: Normaliza o caminho para Windows
         caminho_windows = os.path.abspath(arquivo_path)
         pyautogui.write(caminho_windows, interval=0.02)
         self.aguardar(0.5)
@@ -398,28 +407,30 @@ class SEIAutomation:
         # Seleciona "Informação"
         self.pesquisar_e_selecionar_tipo_doc("Informacao")
         
-        # Preenche formulário
-        self.aguardar(1)
-        pyautogui.press('tab')  # Pula Texto Inicial (já vem Nenhum)
-        self.aguardar(0.2)
+        # Aguarda formulário carregar
+        self.aguardar(1.5)
         
-        self.preencher_campo("Capa padrão imprensa oficial")  # Descrição
+        # Preenche campos (o Texto Inicial já vem "Nenhum" selecionado)
+        # Clica no campo Descrição e preenche
+        pyautogui.press('tab')  # Pula Texto Inicial
+        self.aguardar(0.3)
+        pyautogui.write("Capa padrao imprensa oficial", interval=0.03)
+        self.aguardar(0.3)
+        
+        # Clica no campo Nome na Árvore e preenche
         pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        self.preencher_campo("Capa")  # Nome na Árvore
+        self.aguardar(0.3)
+        pyautogui.write("Capa", interval=0.03)
+        self.aguardar(0.3)
         
         # Nível de acesso e salvar
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         
-        # Aguarda editor abrir
-        self.aguardar(2)
-        
-        # Cola imagem
+        # Cola imagem no editor
         self.colar_imagem_editor(imagem)
         
-        # Salva editor
+        # Salva e fecha editor
         self.clicar_salvar_editor()
         
         print("✅ CAPA inserida!\n")
@@ -436,21 +447,23 @@ class SEIAutomation:
             raise Exception("Erro ao renderizar PDF")
         
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Solicitacao de licitacao")
+        self.pesquisar_e_selecionar_tipo_doc("Solicitacao")
         
-        self.aguardar(1)
+        self.aguardar(1.5)
+        
+        # Preenche campos
+        pyautogui.press('tab')  # Pula Texto Inicial
+        self.aguardar(0.3)
+        pyautogui.write("Solicitacao de adiantamento", interval=0.03)
+        self.aguardar(0.3)
+        
         pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        self.preencher_campo("Solicitação de adiantamento")
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        self.preencher_campo("adiantamento")
+        self.aguardar(0.3)
+        pyautogui.write("adiantamento", interval=0.03)
+        self.aguardar(0.3)
         
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
-        self.aguardar(2)
         
         self.colar_imagem_editor(imagem)
         self.clicar_salvar_editor()
@@ -483,23 +496,14 @@ class SEIAutomation:
         # Seleciona tipo no dropdown
         self.selecionar_dropdown_tipo_externo("Nota de empenho")
         
-        # Preenche campos
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        self.preencher_campo(dados['data'])  # Data
+        # Preenche campos usando coordenadas
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA, dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO, dados['numero'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
         
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        self.preencher_campo(dados['numero'])  # Número
-        
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        self.preencher_campo(dados['numero'])  # Nome na Árvore
-        
-        # Formato: Nato-digital (já vem selecionado - primeiro radio)
-        # Apenas avança
-        pyautogui.press('tab')
-        self.aguardar(0.2)
+        # Formato: Nato-digital (clica no radio)
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
         
         self.selecionar_nivel_acesso_publico()
         
