@@ -20,365 +20,276 @@ pyautogui.FAILSAFE = True  # Mover mouse para canto superior esquerdo cancela
 
 class SEIAutomation:
     """Classe principal para automação do SEI"""
-    
-    # Coordenadas calibradas (ajustadas para resolução 1600x900)
-    COORD_BTN_INCLUIR_DOC = (354, 180)
-    COORD_BARRA_PESQUISA = (761, 380)
-    COORD_BTN_SALVAR_FORM = (1466, 751)
-    COORD_RADIO_PUBLICO = (1122, 667)
-    COORD_BTN_SALVAR_EDITOR = (230, 212)  # Não usado mais (usa Ctrl+Alt+S)
-    COORD_AREA_EDICAO = (817, 589)  # Popup maximizado
-    
-    # Coordenadas para DOCUMENTOS EXTERNOS
-    COORD_DROPDOWN_TIPO_EXTERNO = (672, 353)
-    COORD_CAMPO_DATA = (1044, 353)
-    COORD_CAMPO_NUMERO = (395, 418)
-    COORD_CAMPO_NOME_ARVORE = (595, 411)
-    COORD_RADIO_NATO_DIGITAL = (413, 479)
-    COORD_RADIO_DIGITALIZADO = (414, 507)
-    COORD_DROPDOWN_TIPO_CONFERENCIA = (1056, 478)
-    COORD_BTN_ANEXAR_ARQUIVO = (405, 603)
-    
+
+    # =========================================================
+    # COORDENADAS - TELA PRINCIPAL
+    # =========================================================
+    COORD_BTN_INCLUIR_DOC   = (354, 180)
+    COORD_BARRA_PESQUISA    = (761, 380)
+    COORD_BTN_SALVAR_FORM   = (1466, 757)
+    COORD_RADIO_PUBLICO     = (1120, 668)
+    COORD_AREA_EDICAO       = (817, 589)   # Popup maximizado
+
+    # =========================================================
+    # COORDENADAS - FORMULÁRIO DOCUMENTO INTERNO
+    # (mesma tela para todos os docs tipo "Informação", "Despacho", etc.)
+    # ← CALIBRAR: rode o script abaixo no terminal para descobrir:
+    #
+    #   import pyautogui, time
+    #   print("Aponte para DESCRIÇÃO e aguarde 5s...")
+    #   time.sleep(5); print(pyautogui.position())
+    #   print("Aponte para NOME NA ÁRVORE e aguarde 5s...")
+    #   time.sleep(5); print(pyautogui.position())
+    # =========================================================
+    COORD_CAMPO_DESCRICAO_INTERNO   = (417, 513)
+    COORD_CAMPO_NOME_ARVORE_INTERNO = (425, 568)
+
+    # =========================================================
+    # COORDENADAS - FORMULÁRIO DOCUMENTO EXTERNO
+    # =========================================================
+    COORD_DROPDOWN_TIPO_EXTERNO      = (451, 351)
+    COORD_CAMPO_DATA                 = (1038, 357)
+    COORD_CAMPO_NUMERO               = (406, 413)
+    COORD_CAMPO_NOME_ARVORE          = (616, 413)
+    COORD_RADIO_NATO_DIGITAL         = (411, 482)
+    COORD_RADIO_DIGITALIZADO         = (410, 503)
+    COORD_DROPDOWN_TIPO_CONFERENCIA  = (1056, 478)  # ← CALIBRAR (só aparece ao clicar Digitalizado)
+    COORD_BTN_ANEXAR_ARQUIVO         = (406, 608)
+    COORD_RADIO_PUBLICO_EXTERNO      = (1114, 541)
+
+    # =========================================================
+
     def __init__(self, pasta_documentos=None, pular_primeiros=0):
         """
         Args:
             pasta_documentos: Caminho da pasta com documentos
-            pular_primeiros: Número de documentos para pular (se já foram inseridos)
+            pular_primeiros:  Número de documentos para pular (já inseridos)
         """
         self.pasta_documentos = pasta_documentos or config.DOCUMENTOS_DIR
-        self.pular_primeiros = pular_primeiros
-        self.documentos = []
-        self.dados_contexto = {}  # Armazena dados entre documentos (ex: nome empresa, link NE)
-        
+        self.pular_primeiros  = pular_primeiros
+        self.documentos       = []
+        self.dados_contexto   = {}  # Dados compartilhados entre documentos
+
+    # =========================================================
+    # UTILITÁRIOS
+    # =========================================================
+
+    def aguardar(self, segundos=None):
+        if segundos is None:
+            segundos = config.WAIT_FOR_ELEMENT
+        time.sleep(segundos)
+
     def carregar_documentos(self):
-        """Carrega lista de documentos da pasta"""
+        """Carrega e ordena lista de documentos da pasta"""
         if not os.path.exists(self.pasta_documentos):
             raise Exception(f"Pasta não encontrada: {self.pasta_documentos}")
-        
-        # Lista todos os arquivos e ordena
+
         arquivos = sorted(os.listdir(self.pasta_documentos))
-        
-        # Filtra apenas PDFs e DOCX
         todos_docs = [
-            os.path.join(self.pasta_documentos, f) 
-            for f in arquivos 
+            os.path.join(self.pasta_documentos, f)
+            for f in arquivos
             if f.lower().endswith(('.pdf', '.docx'))
         ]
-        
-        # Pula os primeiros se solicitado
         self.documentos = todos_docs[self.pular_primeiros:]
-        
+
         print(f"\n📁 Total de documentos na pasta: {len(todos_docs)}")
         if self.pular_primeiros > 0:
             print(f"⏭️  Pulando os primeiros {self.pular_primeiros}")
         print(f"📄 Documentos a processar: {len(self.documentos)}")
-        
         for i, doc in enumerate(self.documentos, self.pular_primeiros + 1):
             print(f"  {i}. {os.path.basename(doc)}")
-        
+
         return self.documentos
-    
-    def aguardar(self, segundos=None):
-        """Aguarda um tempo"""
-        if segundos is None:
-            segundos = config.WAIT_FOR_ELEMENT
-        time.sleep(segundos)
-    
+
+    # =========================================================
+    # AÇÕES BÁSICAS
+    # =========================================================
+
     def clicar_botao_incluir_documento(self):
-        """Clica no botão de incluir documento (ícone tracejado)"""
         print("\n🖱️ Clicando em 'Incluir Documento'...")
-        
         pyautogui.click(self.COORD_BTN_INCLUIR_DOC)
         self.aguardar(1.5)
-        
         print("✅ Lista de documentos aberta")
-    
+
     def pesquisar_e_selecionar_tipo_doc(self, texto_busca):
-        """
-        Pesquisa e seleciona tipo de documento na lista
-        Usa a barra de pesquisa do topo
-        
-        Args:
-            texto_busca: Texto a pesquisar (ex: "Informação", "Externo")
-        """
+        """Pesquisa e seleciona tipo de documento na barra de busca"""
         print(f"🔍 Buscando: '{texto_busca}'")
-        
-        # Clica na barra de pesquisa
         pyautogui.click(self.COORD_BARRA_PESQUISA)
         self.aguardar(0.5)
-        
-        # Limpa e digita
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.write(texto_busca, interval=0.05)
         self.aguardar(0.8)
-        
-        # Pressiona seta para baixo e Enter (seleciona primeiro resultado)
         pyautogui.press('down')
         self.aguardar(0.3)
         pyautogui.press('enter')
         self.aguardar(1.5)
-        
         print(f"✅ Selecionado: '{texto_busca}'")
-    
+
+    def preencher_formulario_interno(self, descricao, nome_arvore):
+        """
+        Preenche os campos Descrição e Nome na Árvore do formulário
+        de documento interno usando coordenadas fixas.
+        Reutilizável para todos os documentos internos.
+        """
+        print("  ⏳ Aguardando formulário carregar...")
+        self.aguardar(3)
+
+        print(f"  ✏️ Preenchendo 'Descrição': {descricao}")
+        pyautogui.click(self.COORD_CAMPO_DESCRICAO_INTERNO)
+        self.aguardar(0.4)
+        pyautogui.hotkey('ctrl', 'a')
+        pyautogui.press('delete')
+        self.aguardar(0.1)
+        pyperclip.copy(descricao)
+        pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.5)
+
+        print(f"  ✏️ Preenchendo 'Nome na Árvore': {nome_arvore}")
+        pyautogui.click(self.COORD_CAMPO_NOME_ARVORE_INTERNO)
+        self.aguardar(0.4)
+        pyautogui.hotkey('ctrl', 'a')
+        pyautogui.press('delete')
+        self.aguardar(0.1)
+        pyperclip.copy(nome_arvore)
+        pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.5)
+
+        print("  ✅ Campos preenchidos!")
+
     def selecionar_dropdown_tipo_externo(self, tipo_documento):
-        """
-        Seleciona tipo no dropdown gigante de documentos externos
-        Usa coordenada e digitação rápida
-        
-        Args:
-            tipo_documento: Nome do tipo (ex: "Nota de empenho")
-        """
-        print(f"📋 Selecionando tipo: '{tipo_documento}'")
-        
-        # Clica no dropdown usando coordenada calibrada
+        """Seleciona tipo no dropdown de documentos externos"""
+        print(f"📋 Selecionando tipo externo: '{tipo_documento}'")
         pyautogui.click(self.COORD_DROPDOWN_TIPO_EXTERNO)
         self.aguardar(0.8)
-        
-        # Digita rapidamente (dropdown filtra automaticamente)
-        # Pega primeiras palavras para acelerar
         palavras = tipo_documento.split()[:3]
-        texto_curto = ' '.join(palavras)
-        
-        pyautogui.write(texto_curto, interval=0.08)
+        pyautogui.write(' '.join(palavras), interval=0.08)
         self.aguardar(1)
-        
-        # Pressiona Enter
         pyautogui.press('enter')
         self.aguardar(0.5)
-        
-        print(f"✅ Tipo selecionado")
-    
+        print("✅ Tipo selecionado")
+
     def preencher_campo_clicando(self, coord, texto, limpar=True):
-        """
-        Preenche campo clicando em uma coordenada específica
-        
-        Args:
-            coord: Tupla (x, y) da coordenada
-            texto: Texto a preencher
-            limpar: Se True, limpa o campo antes
-        """
-        # Clica no campo
+        """Preenche campo clicando em coordenada específica"""
         pyautogui.click(coord)
         self.aguardar(0.3)
-        
         if limpar:
-            # Limpa campo
             pyautogui.hotkey('ctrl', 'a')
             pyautogui.press('delete')
             self.aguardar(0.1)
-        
-        # Digita o texto
         if texto:
-            pyautogui.write(str(texto), interval=0.03)
+            pyperclip.copy(str(texto))
+            pyautogui.hotkey('ctrl', 'v')
             self.aguardar(0.3)
-    
-    def selecionar_nivel_acesso_publico(self):
-        """Rola até o final e seleciona Nível de Acesso: Público"""
+
+    def selecionar_nivel_acesso_publico(self, n_scrolls=6):
+        """Formulários INTERNOS — rola e clica em Público"""
         print("🔓 Selecionando Nível de Acesso: Público")
-        
-        # Rola para baixo
+        for _ in range(n_scrolls):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+        pyautogui.click(self.COORD_RADIO_PUBLICO)
+        self.aguardar(0.3)
+        print("✅ Público selecionado")
+
+    def selecionar_nivel_acesso_publico_externo(self):
+        """Formulários EXTERNOS — usa coordenada própria calibrada"""
+        print("🔓 Selecionando Nível de Acesso: Público (externo)")
         for _ in range(6):
             pyautogui.scroll(-400)
             self.aguardar(0.2)
-        
-        # Clica no radio button Público usando coordenada calibrada
-        pyautogui.click(self.COORD_RADIO_PUBLICO)
+        pyautogui.click(self.COORD_RADIO_PUBLICO_EXTERNO)
         self.aguardar(0.3)
-        
         print("✅ Público selecionado")
-    
+
     def clicar_salvar(self):
-        """Clica no botão Salvar"""
+        """Clica em Salvar e maximiza o popup do editor"""
         print("💾 Clicando em Salvar...")
-        
-        # Usa coordenada calibrada
         pyautogui.click(self.COORD_BTN_SALVAR_FORM)
-        
         self.aguardar(2.5)
-        
-        # Aguarda popup do editor abrir
         print("  ⏳ Aguardando editor abrir...")
         self.aguardar(1)
-        
-        # Maximiza o popup: Alt+Espaço -> X
         print("  🖼️ Maximizando popup...")
         pyautogui.hotkey('alt', 'space')
         self.aguardar(0.3)
         pyautogui.press('x')
         self.aguardar(0.5)
-        
         print("✅ Salvo e editor aberto")
-    
+
     def colar_imagem_editor(self, imagem_obj):
-        """
-        Cola imagem no editor de texto do SEI
-        
-        Args:
-            imagem_obj: Objeto PIL.Image
-        """
+        """Cola imagem PIL no editor de texto do SEI"""
         print("📋 Colando imagem no editor...")
-        
         try:
             from PIL import Image
             import io
             import win32clipboard
-            
-            # Converte para formato do clipboard (Windows)
+
             output = io.BytesIO()
             imagem_obj.convert('RGB').save(output, 'BMP')
-            data = output.getvalue()[14:]  # Remove BMP header
+            data = output.getvalue()[14:]
             output.close()
-            
-            # Coloca no clipboard
+
             win32clipboard.OpenClipboard()
             win32clipboard.EmptyClipboard()
             win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
             win32clipboard.CloseClipboard()
-            
             self.aguardar(0.5)
-            
-            # Clica na área de edição usando coordenada calibrada
+
             pyautogui.click(self.COORD_AREA_EDICAO)
             self.aguardar(0.3)
-            
-            # IMPORTANTE: Seleciona todo o conteúdo antes de colar
             pyautogui.hotkey('ctrl', 'a')
             self.aguardar(0.2)
-            
-            # Cola (substitui o conteúdo selecionado)
             pyautogui.hotkey('ctrl', 'v')
             self.aguardar(1.5)
-            
             print("✅ Imagem colada")
-            
+
         except Exception as e:
             print(f"❌ Erro ao colar imagem: {e}")
             raise
-    
+
     def colar_texto_editor(self, texto):
-        """
-        Cola texto no editor
-        
-        Args:
-            texto: Texto a colar
-        """
+        """Cola texto no editor"""
         print("📝 Colando texto no editor...")
-        
-        # Copia para clipboard
         pyperclip.copy(texto)
         self.aguardar(0.3)
-        
-        # Clica na área de edição usando coordenada calibrada
         pyautogui.click(self.COORD_AREA_EDICAO)
         self.aguardar(0.3)
-        
-        # Seleciona tudo e substitui
         pyautogui.hotkey('ctrl', 'a')
         self.aguardar(0.2)
         pyautogui.hotkey('ctrl', 'v')
         self.aguardar(0.8)
-        
         print("✅ Texto colado")
-    
+
     def clicar_salvar_editor(self):
-        """Salva e fecha o editor (popup)"""
+        """Salva (Ctrl+Alt+S) e fecha (Ctrl+W) o editor popup"""
         print("💾 Salvando no editor...")
-        
-        # Clica na área do editor para garantir que está focado
         pyautogui.click(self.COORD_AREA_EDICAO)
         self.aguardar(0.3)
-        
-        # Salva usando atalho do SEI: Ctrl+Alt+S
         pyautogui.hotkey('ctrl', 'alt', 's')
-        
-        # Aguarda o documento ser salvo
         print("  ⏳ Aguardando salvar...")
         self.aguardar(3)
-        
-        # Fecha o popup: Ctrl+W
         print("  🚪 Fechando popup...")
         pyautogui.hotkey('ctrl', 'w')
         self.aguardar(1.5)
-        
         print("✅ Editor salvo e fechado")
-    
+
     def anexar_arquivo_externo(self, arquivo_path):
-        """
-        Anexa arquivo em documento externo
-        Usa janela de upload do Windows
-        
-        Args:
-            arquivo_path: Caminho completo do arquivo PDF
-        """
+        """Abre janela de upload do Windows e anexa o arquivo"""
         print(f"📎 Anexando: {os.path.basename(arquivo_path)}")
-        
-        # Clica no botão "Anexar Arquivo..." usando coordenada calibrada
         pyautogui.click(self.COORD_BTN_ANEXAR_ARQUIVO)
         self.aguardar(2)
-        
-        # Janela de seleção do Windows abre
         print("  ⏳ Aguardando janela de upload...")
         self.aguardar(1)
-        
-        # Digita o caminho completo do arquivo
         caminho_windows = os.path.abspath(arquivo_path)
-        pyautogui.write(caminho_windows, interval=0.02)
+        pyperclip.copy(caminho_windows)
+        pyautogui.hotkey('ctrl', 'v')   # cola o caminho na janela do Windows
         self.aguardar(0.5)
-        
-        # Pressiona Enter para confirmar
         pyautogui.press('enter')
-        
-        # Aguarda upload processar
         print("  ⏳ Processando upload...")
         self.aguardar(5)
-        
         print("✅ Arquivo anexado")
-    
-    def capturar_link_documento_arvore(self, nome_documento):
-        """
-        Captura link de documento na árvore
-        Clica com botão esquerdo no ícone → seleciona 3ª opção do menu
-        
-        Args:
-            nome_documento: Nome do documento na árvore (para referência)
-            
-        Returns:
-            Link copiado para clipboard
-        """
-        print(f"🔗 Capturando link: '{nome_documento}'")
-        
-        # NOTA: Assumindo que o documento está visível na árvore
-        # A posição precisa ser ajustada baseado em onde o documento aparece
-        
-        # Clica no ícone do documento (PDF vermelho na árvore)
-        # Posição aproximada - PRECISA AJUSTAR COM TESTE REAL
-        pyautogui.click(69, 262)
-        self.aguardar(0.8)
-        
-        # Menu contextual abre
-        # Navega até 3ª opção (Copiar Link)
-        pyautogui.press('down')
-        pyautogui.press('down')
-        pyautogui.press('enter')
-        
-        self.aguardar(0.8)
-        
-        # Link foi copiado para clipboard
-        link = pyperclip.paste()
-        print(f"✅ Link capturado: {link[:50]}...")
-        
-        return link
-    
+
     def ler_texto_docx(self, docx_path):
-        """
-        Lê todo o texto de um arquivo .docx
-        
-        Args:
-            docx_path: Caminho do arquivo .docx
-            
-        Returns:
-            String com todo o texto
-        """
+        """Lê todo o texto de um arquivo .docx"""
         try:
             doc = DocxDocument(docx_path)
             texto = "\n".join([p.text for p in doc.paragraphs])
@@ -387,217 +298,161 @@ class SEIAutomation:
         except Exception as e:
             print(f"❌ Erro ao ler .docx: {e}")
             return ""
-    
-    # ===== FUNÇÕES PARA CADA TIPO DE DOCUMENTO =====
-    
+
+    # =========================================================
+    # DOCUMENTOS INTERNOS (print de PDF)
+    # =========================================================
+
     def processar_documento_01_capa(self, pdf_path):
         """01. CAPA"""
         print("\n" + "="*60)
         print("📄 DOCUMENTO 01: CAPA")
         print("="*60)
-        
-        # Processa imagem com regra especial
+
         imagem = pdf_utils.processar_capa_especial(pdf_path)
         if not imagem:
             raise Exception("Erro ao processar capa")
-        
-        # Clica em incluir documento
+
         self.clicar_botao_incluir_documento()
-        
-        # Seleciona "Informação"
         self.pesquisar_e_selecionar_tipo_doc("Informacao")
-        
-        # Aguarda formulário carregar
-        self.aguardar(1.5)
-        
-        # Preenche campos (o Texto Inicial já vem "Nenhum" selecionado)
-        # Clica no campo Descrição e preenche
-        pyautogui.press('tab')  # Pula Texto Inicial
-        self.aguardar(0.3)
-        pyautogui.write("Capa padrao imprensa oficial", interval=0.03)
-        self.aguardar(0.3)
-        
-        # Clica no campo Nome na Árvore e preenche
-        pyautogui.press('tab')
-        self.aguardar(0.3)
-        pyautogui.write("Capa", interval=0.03)
-        self.aguardar(0.3)
-        
-        # Nível de acesso e salvar
+        self.preencher_formulario_interno("Capa padrão imprensa oficial", "Capa")
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
-        
-        # Cola imagem no editor
         self.colar_imagem_editor(imagem)
-        
-        # Salva e fecha editor
         self.clicar_salvar_editor()
-        
+
         print("✅ CAPA inserida!\n")
-    
+
     def processar_documento_02_solicitacao(self, pdf_path):
         """02. SOLICITAÇÃO DE ADIANTAMENTO"""
         print("\n" + "="*60)
         print("📄 DOCUMENTO 02: SOLICITAÇÃO DE ADIANTAMENTO")
         print("="*60)
-        
-        # Renderiza PDF
+
         imagem = pdf_utils.processar_print_padrao(pdf_path)
         if not imagem:
             raise Exception("Erro ao renderizar PDF")
-        
+
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Solicitacao")
-        
-        self.aguardar(1.5)
-        
-        # Preenche campos
-        pyautogui.press('tab')  # Pula Texto Inicial
-        self.aguardar(0.3)
-        pyautogui.write("Solicitacao de adiantamento", interval=0.03)
-        self.aguardar(0.3)
-        
-        pyautogui.press('tab')
-        self.aguardar(0.3)
-        pyautogui.write("adiantamento", interval=0.03)
-        self.aguardar(0.3)
-        
+        self.preencher_formulario_interno("Solicitação de adiantamento", "adiantamento")
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
-        
         self.colar_imagem_editor(imagem)
         self.clicar_salvar_editor()
-        
+
         print("✅ SOLICITAÇÃO inserida!\n")
-    
+
+    # =========================================================
+    # DOCUMENTOS EXTERNOS (upload de PDF)
+    # =========================================================
+
     def processar_documento_03_nota_empenho(self, pdf_path):
         """03. NOTA DE EMPENHO"""
         print("\n" + "="*60)
         print("📄 DOCUMENTO 03: NOTA DE EMPENHO")
         print("="*60)
-        
-        # Extrai dados via OCR
+
         dados = pdf_utils.extrair_dados_nota_empenho(pdf_path)
-        
-        # Valida dados
+
         if not dados['data'] or not dados['numero']:
             print("⚠️ ATENÇÃO: Dados não extraídos completamente!")
-            print("   Você precisará preencher manualmente após a execução")
-        
-        # Armazena no contexto para usar no despacho
-        self.dados_contexto['ne_data'] = dados['data'] or '[DATA]'
+
+        # Guarda no contexto para o despacho (doc 04)
+        self.dados_contexto['ne_data']   = dados['data']   or '[DATA]'
         self.dados_contexto['ne_numero'] = dados['numero'] or '[NÚMERO]'
-        
+
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Externo")
-        
         self.aguardar(1.5)
-        
-        # Seleciona tipo no dropdown
+
         self.selecionar_dropdown_tipo_externo("Nota de empenho")
-        
-        # Preenche campos usando coordenadas
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA, dados['data'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO, dados['numero'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
-        
-        # Formato: Nato-digital (clica no radio)
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,         dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,       dados['numero'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE,  dados['numero'])
+
         pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
-        
-        self.selecionar_nivel_acesso_publico()
-        
-        # Anexa arquivo
+
+        # Público ANTES de anexar (evita bagunça de layout)
+        self.selecionar_nivel_acesso_publico_externo()
+
         self.anexar_arquivo_externo(pdf_path)
-        
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
         self.clicar_salvar()
-        
+
         print("✅ NOTA DE EMPENHO inserida!\n")
-    
+
     def processar_documento_04_despacho_ne(self):
         """04. DESPACHO DE APROVAÇÃO DA NOTA DE EMPENHO"""
         print("\n" + "="*60)
         print("📄 DOCUMENTO 04: DESPACHO DE APROVAÇÃO DA NE")
         print("="*60)
-        
-        print("⚠️ ATENÇÃO: Você precisará capturar o link manualmente")
-        print("   1. Clique no ícone PDF da Nota de Empenho na árvore")
-        print("   2. Selecione a 3ª opção do menu")
-        print("   Pressione ENTER quando estiver pronto...")
+
+        print("⚠️ ATENÇÃO: Copie o link da NE na árvore do SEI")
+        print("   1. Clique com botão direito no ícone da Nota de Empenho")
+        print("   2. Selecione a opção de copiar link")
+        print("   Pressione ENTER quando o link estiver no clipboard...")
         input()
-        
-        # Captura link da NE da árvore
-        # NOTA: Esta função precisa de ajuste de coordenadas no teste real
-        link_ne = pyperclip.paste()  # Assume que usuário já copiou
-        
+
+        link_ne = pyperclip.paste()
         if not link_ne or 'http' not in link_ne.lower():
             link_ne = '[LINK_DO_DOCUMENTO]'
-            print("⚠️ Link não capturado. Será inserido placeholder.")
-        
-        # Monta texto do despacho
+            print("⚠️ Link não detectado. Será usado placeholder.")
+
         texto = config.DESPACHO_APROVACAO_TEMPLATE.format(
-            numero_ne=self.dados_contexto.get('ne_numero', '[NÚMERO]'),
-            link_ne=link_ne,
-            data_ne=self.dados_contexto.get('ne_data', '[DATA]')
+            numero_ne = self.dados_contexto.get('ne_numero', '[NÚMERO]'),
+            link_ne   = link_ne,
+            data_ne   = self.dados_contexto.get('ne_data', '[DATA]')
         )
-        
+
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Despacho")
-        
-        self.aguardar(1)
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        self.preencher_campo("Aprovação de NE")
-        pyautogui.press('tab')
-        self.aguardar(0.2)
-        
-        self.preencher_campo("Aprovação de NE")
-        
+        self.preencher_formulario_interno("Aprovação de NE", "Aprovação de NE")
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.aguardar(2)
-        
         self.colar_texto_editor(texto)
         self.clicar_salvar_editor()
-        
+
         print("✅ DESPACHO inserido!\n")
-    
+
+    # =========================================================
+    # EXECUÇÃO PRINCIPAL
+    # =========================================================
+
     def executar(self):
         """Executa o processo completo de automação"""
         print("\n" + "="*70)
         print("🤖 AUTOMAÇÃO SEI - INSERÇÃO DE DOCUMENTOS")
         print("="*70)
-        
-        # Validações
+
         print("\n🔍 Verificando configurações...")
         if not config.validar_configuracoes():
             print("\n❌ Corrija as configurações antes de continuar")
             return False
-        
-        # Carrega documentos
+
         self.carregar_documentos()
-        
+
         if not self.documentos:
             print("\n❌ Nenhum documento encontrado!")
             return False
-        
-        # Instruções ao usuário
+
         print("\n" + "="*70)
-        print("⚠️  INSTRUÇÕES IMPORTANTES:")
+        print("⚠️  INSTRUÇÕES:")
         print("="*70)
-        print("1. Abra o FIREFOX e acesse o SEI")
-        print("2. Abra o processo onde deseja inserir documentos")
-        print("3. MAXIMIZE a janela do Firefox")
-        print("4. DEIXE o processo VISÍVEL na tela")
-        print("5. NÃO mexa no mouse/teclado durante a execução")
-        print("6. Para CANCELAR a qualquer momento: mova o mouse para o")
-        print("   canto SUPERIOR ESQUERDO da tela")
+        print("1. Firefox aberto e maximizado no SEI")
+        print("2. Processo aberto e visível na tela")
+        print("3. NÃO mexa no mouse/teclado durante a execução")
+        print("4. Para CANCELAR: mova o mouse para o canto SUPERIOR ESQUERDO")
         print("="*70)
-        
-        print("\n⏳ Iniciando em 10 segundos...")
-        print("   (Pressione Ctrl+C para cancelar agora)")
-        
+
+        print("\n⏳ Iniciando em 10 segundos... (Ctrl+C para cancelar)")
         try:
             for i in range(10, 0, -1):
                 print(f"   {i}...", end='\r')
@@ -605,61 +460,55 @@ class SEIAutomation:
         except KeyboardInterrupt:
             print("\n\n❌ Cancelado pelo usuário")
             return False
-        
+
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
-        
+
         try:
-            # Processa os 4 primeiros documentos
             if len(self.documentos) >= 1:
                 self.processar_documento_01_capa(self.documentos[0])
-            
+
             if len(self.documentos) >= 2:
                 self.processar_documento_02_solicitacao(self.documentos[1])
-            
+
             if len(self.documentos) >= 3:
                 self.processar_documento_03_nota_empenho(self.documentos[2])
-            
-            # O 4º é gerado automaticamente (despacho)
+
             self.processar_documento_04_despacho_ne()
-            
+
             print("\n" + "="*70)
             print("✅ AUTOMAÇÃO CONCLUÍDA!")
             print("="*70)
-            print("\n⚠️ IMPORTANTE: Verifique todos os documentos inseridos")
-            print("   Confira se os dados de OCR estão corretos")
-            
+            print("\n⚠️ Verifique todos os documentos inseridos")
+            print("   Confirme se os dados de OCR estão corretos")
             return True
-            
+
         except KeyboardInterrupt:
             print("\n\n⚠️ Automação cancelada pelo usuário")
             return False
         except Exception as e:
-            print(f"\n\n❌ ERRO DURANTE EXECUÇÃO:")
-            print(f"   {e}")
-            print("\nDetalhes técnicos:")
+            print(f"\n\n❌ ERRO DURANTE EXECUÇÃO: {e}")
             import traceback
             traceback.print_exc()
             return False
 
 
-# ===== EXECUÇÃO =====
+# =========================================================
+# EXECUÇÃO
+# =========================================================
 
 if __name__ == "__main__":
     print("="*70)
     print("SEI AUTOMATION - Sistema de Inserção Automática de Documentos")
     print("="*70)
-    
-    # Cria instância
-    # Se quiser pular documentos já inseridos: SEIAutomation(pular_primeiros=2)
+
+    # Para pular docs já inseridos: SEIAutomation(pular_primeiros=2)
     automacao = SEIAutomation()
-    
-    # Executa
     sucesso = automacao.executar()
-    
+
     if sucesso:
         print("\n✅ Processo finalizado com sucesso!")
     else:
         print("\n❌ Processo finalizado com erros")
-    
+
     print("\nPressione ENTER para sair...")
     input()
