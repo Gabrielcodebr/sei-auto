@@ -5,6 +5,7 @@ Não precisa mais do Poppler!
 """
 
 import os
+import re
 import fitz  # PyMuPDF
 from PIL import Image
 import io
@@ -27,7 +28,6 @@ def renderizar_primeira_pagina_pdf(pdf_path, dpi=None):
         if dpi is None:
             dpi = config.PDF_DPI
         
-        # Abre o PDF com PyMuPDF
         doc = fitz.open(pdf_path)
         
         if len(doc) == 0:
@@ -35,18 +35,13 @@ def renderizar_primeira_pagina_pdf(pdf_path, dpi=None):
             doc.close()
             return None
         
-        # Pega a primeira página
         page = doc[0]
         
-        # Calcula zoom baseado no DPI
-        # 72 DPI é o padrão do PyMuPDF
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
         
-        # Renderiza a página como imagem
         pix = page.get_pixmap(matrix=mat)
         
-        # Converte para PIL.Image
         img_data = pix.tobytes("png")
         imagem = Image.open(io.BytesIO(img_data))
         
@@ -65,12 +60,6 @@ def processar_capa_especial(pdf_path):
     - Renderiza primeira página
     - Localiza "Tribunal de Contas do Estado de São Paulo"
     - Corta tudo acima dessa linha
-    
-    Args:
-        pdf_path: Caminho do arquivo PDF da capa
-        
-    Returns:
-        Objeto PIL.Image processado ou None
     """
     try:
         print("  📄 Renderizando capa...")
@@ -81,20 +70,14 @@ def processar_capa_especial(pdf_path):
         
         print("  🔍 Procurando texto 'Tribunal de Contas'...")
         
-        # Texto a procurar (normalizado, case-insensitive)
         texto_busca = "Tribunal de Contas do Estado de São Paulo"
-        
-        # Localiza o texto na imagem
         coords = ocr_utils.localizar_texto_na_imagem(imagem, texto_busca)
         
         if coords:
             x, y, w, h = coords
             print(f"  ✅ Texto encontrado na posição Y={y}")
-            
-            # Corta a imagem: mantém do Y encontrado até o final
             largura, altura = imagem.size
             imagem_cortada = imagem.crop((0, y, largura, altura))
-            
             print(f"  ✂️ Imagem cortada de {altura}px para {altura - y}px")
             return imagem_cortada
         else:
@@ -110,27 +93,11 @@ def processar_capa_especial(pdf_path):
 def processar_print_padrao(pdf_path):
     """
     Processa PDF padrão para print (apenas renderiza primeira página)
-    
-    Args:
-        pdf_path: Caminho do arquivo PDF
-        
-    Returns:
-        Objeto PIL.Image da primeira página
     """
     return renderizar_primeira_pagina_pdf(pdf_path)
 
 
 def salvar_imagem_temporaria(imagem, prefixo="temp"):
-    """
-    Salva imagem temporariamente para uso posterior
-    
-    Args:
-        imagem: Objeto PIL.Image
-        prefixo: Prefixo do nome do arquivo
-        
-    Returns:
-        Caminho do arquivo salvo
-    """
     try:
         temp_path = os.path.join(config.BASE_DIR, f"{prefixo}_temp.{config.IMAGE_FORMAT.lower()}")
         imagem.save(temp_path, config.IMAGE_FORMAT)
@@ -143,12 +110,6 @@ def salvar_imagem_temporaria(imagem, prefixo="temp"):
 def extrair_texto_completo_pdf(pdf_path):
     """
     Extrai todo o texto de um PDF usando OCR
-    
-    Args:
-        pdf_path: Caminho do arquivo PDF
-        
-    Returns:
-        String com todo o texto extraído
     """
     try:
         imagem = renderizar_primeira_pagina_pdf(pdf_path)
@@ -162,19 +123,14 @@ def extrair_texto_completo_pdf(pdf_path):
 
 def extrair_dados_nota_empenho(pdf_path):
     """
-    Extrai dados específicos de uma Nota de Empenho
-    
-    Args:
-        pdf_path: Caminho do PDF da Nota de Empenho
-        
-    Returns:
-        Dicionário com 'data' e 'numero'
+    Extrai dados específicos de uma Nota de Empenho.
+    Retorna dicionário com 'data' e 'numero'.
     """
     try:
         print("  🔍 Extraindo dados da Nota de Empenho...")
         texto = extrair_texto_completo_pdf(pdf_path)
         
-        data = ocr_utils.extrair_data(texto)
+        data   = ocr_utils.extrair_data(texto)
         numero = ocr_utils.extrair_numero_documento(texto)
         
         if data:
@@ -187,10 +143,7 @@ def extrair_dados_nota_empenho(pdf_path):
         else:
             print("  ⚠️ Número não encontrado")
         
-        return {
-            'data': data,
-            'numero': numero
-        }
+        return {'data': data, 'numero': numero}
         
     except Exception as e:
         print(f"❌ Erro ao extrair dados da NE: {e}")
@@ -199,36 +152,34 @@ def extrair_dados_nota_empenho(pdf_path):
 
 def extrair_dados_ordem_bancaria(pdf_path):
     """
-    Extrai dados específicos de uma Ordem Bancária
-    
-    Args:
-        pdf_path: Caminho do PDF da Ordem Bancária
-        
-    Returns:
-        Dicionário com 'data' e 'numero'
+    Extrai dados específicos de uma Ordem Bancária.
+    Usa regex específico para padrão OB (ex: 2025OB03848),
+    evitando capturar outros números como PD, NE, etc.
+
+    Retorna dicionário com 'data' e 'numero'.
     """
     try:
         print("  🔍 Extraindo dados da Ordem Bancária...")
         texto = extrair_texto_completo_pdf(pdf_path)
-        
+
         data = ocr_utils.extrair_data(texto)
-        numero = ocr_utils.extrair_numero_documento(texto)
-        
+
+        # Regex específico: 4 dígitos + OB + dígitos  →  ex: 2025OB03848
+        match = re.search(r'\d{4}OB\d+', texto, re.IGNORECASE)
+        numero = match.group(0).upper() if match else None
+
         if data:
             print(f"  ✅ Data: {data}")
         else:
             print("  ⚠️ Data não encontrada")
-        
+
         if numero:
-            print(f"  ✅ Número: {numero}")
+            print(f"  ✅ Número OB: {numero}")
         else:
-            print("  ⚠️ Número não encontrado")
-        
-        return {
-            'data': data,
-            'numero': numero
-        }
-        
+            print("  ⚠️ Número OB não encontrado — verifique o OCR")
+
+        return {'data': data, 'numero': numero}
+
     except Exception as e:
         print(f"❌ Erro ao extrair dados da OB: {e}")
         return {'data': None, 'numero': None}
@@ -236,20 +187,15 @@ def extrair_dados_ordem_bancaria(pdf_path):
 
 def extrair_dados_nota_fiscal(pdf_path):
     """
-    Extrai dados específicos de uma Nota Fiscal
-    
-    Args:
-        pdf_path: Caminho do PDF da Nota Fiscal
-        
-    Returns:
-        Dicionário com 'data', 'numero' e 'empresa'
+    Extrai dados específicos de uma Nota Fiscal.
+    Retorna dicionário com 'data', 'numero' e 'empresa'.
     """
     try:
         print("  🔍 Extraindo dados da Nota Fiscal...")
         texto = extrair_texto_completo_pdf(pdf_path)
         
-        data = ocr_utils.extrair_data(texto)
-        numero = ocr_utils.extrair_numero_documento(texto)
+        data    = ocr_utils.extrair_data(texto)
+        numero  = ocr_utils.extrair_numero_documento(texto)
         empresa = ocr_utils.extrair_nome_empresa(texto)
         
         if data:
@@ -267,11 +213,7 @@ def extrair_dados_nota_fiscal(pdf_path):
         else:
             print("  ⚠️ Nome da empresa não encontrado")
         
-        return {
-            'data': data,
-            'numero': numero,
-            'empresa': empresa
-        }
+        return {'data': data, 'numero': numero, 'empresa': empresa}
         
     except Exception as e:
         print(f"❌ Erro ao extrair dados da NF: {e}")
@@ -280,19 +222,12 @@ def extrair_dados_nota_fiscal(pdf_path):
 
 def extrair_cnpj_documento(pdf_path):
     """
-    Extrai CNPJ de um documento
-    
-    Args:
-        pdf_path: Caminho do PDF
-        
-    Returns:
-        String com CNPJ formatado ou None
+    Extrai CNPJ de um documento.
     """
     try:
         print("  🔍 Extraindo CNPJ...")
         texto = extrair_texto_completo_pdf(pdf_path)
-        
-        cnpj = ocr_utils.extrair_cnpj(texto)
+        cnpj  = ocr_utils.extrair_cnpj(texto)
         
         if cnpj:
             print(f"  ✅ CNPJ: {cnpj}")
@@ -308,19 +243,14 @@ def extrair_cnpj_documento(pdf_path):
 
 def extrair_dados_guia_iss(pdf_path):
     """
-    Extrai dados específicos de uma Guia de ISS
-    
-    Args:
-        pdf_path: Caminho do PDF da Guia
-        
-    Returns:
-        Dicionário com 'data' e 'numero'
+    Extrai dados específicos de uma Guia de ISS.
+    Retorna dicionário com 'data' e 'numero'.
     """
     try:
         print("  🔍 Extraindo dados da Guia de ISS...")
         texto = extrair_texto_completo_pdf(pdf_path)
         
-        data = ocr_utils.extrair_data(texto)
+        data   = ocr_utils.extrair_data(texto)
         numero = ocr_utils.extrair_numero_guia_iss(texto)
         
         if data:
@@ -333,10 +263,7 @@ def extrair_dados_guia_iss(pdf_path):
         else:
             print("  ⚠️ Número não encontrado")
         
-        return {
-            'data': data,
-            'numero': numero
-        }
+        return {'data': data, 'numero': numero}
         
     except Exception as e:
         print(f"❌ Erro ao extrair dados da guia ISS: {e}")
@@ -345,19 +272,12 @@ def extrair_dados_guia_iss(pdf_path):
 
 def extrair_data_extrato(pdf_path):
     """
-    Extrai data de um extrato bancário
-    
-    Args:
-        pdf_path: Caminho do PDF do extrato
-        
-    Returns:
-        String com a data ou None
+    Extrai data de um extrato bancário.
     """
     try:
         print("  🔍 Extraindo data do extrato...")
         texto = extrair_texto_completo_pdf(pdf_path)
-        
-        data = ocr_utils.extrair_data(texto)
+        data  = ocr_utils.extrair_data(texto)
         
         if data:
             print(f"  ✅ Data: {data}")
@@ -378,12 +298,10 @@ if __name__ == "__main__":
     print("Testando funções de PDF com PyMuPDF")
     print("="*70)
     
-    # Verifica se a pasta de documentos existe
     if not os.path.exists(config.DOCUMENTOS_DIR):
         print(f"\n⚠️ Pasta de documentos não encontrada: {config.DOCUMENTOS_DIR}")
         print("Crie a pasta e adicione alguns PDFs para testar")
     else:
-        # Lista arquivos PDF na pasta
         pdfs = [f for f in os.listdir(config.DOCUMENTOS_DIR) if f.lower().endswith('.pdf')]
         
         if pdfs:
@@ -392,7 +310,6 @@ if __name__ == "__main__":
             
             pdf_teste = os.path.join(config.DOCUMENTOS_DIR, pdfs[0])
             
-            # Testa renderização
             print("\n1️⃣ Testando renderização...")
             img = renderizar_primeira_pagina_pdf(pdf_teste)
             if img:
@@ -400,7 +317,6 @@ if __name__ == "__main__":
             else:
                 print(f"   ❌ Falha ao renderizar")
             
-            # Testa extração de texto
             print("\n2️⃣ Testando extração de texto...")
             texto = extrair_texto_completo_pdf(pdf_teste)
             if texto:

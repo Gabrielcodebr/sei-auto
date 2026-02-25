@@ -31,15 +31,12 @@ class SEIAutomation:
     COORD_AREA_EDICAO       = (817, 589)   # Popup maximizado
 
     # =========================================================
+    # COORDENADAS - ÁRVORE DO PROCESSO
+    # =========================================================
+    COORD_ICONE_NE_ARVORE = (49, 246)   # Ícone da Nota de Empenho na árvore
+
+    # =========================================================
     # COORDENADAS - FORMULÁRIO DOCUMENTO INTERNO
-    # (mesma tela para todos os docs tipo "Informação", "Despacho", etc.)
-    # ← CALIBRAR: rode o script abaixo no terminal para descobrir:
-    #
-    #   import pyautogui, time
-    #   print("Aponte para DESCRIÇÃO e aguarde 5s...")
-    #   time.sleep(5); print(pyautogui.position())
-    #   print("Aponte para NOME NA ÁRVORE e aguarde 5s...")
-    #   time.sleep(5); print(pyautogui.position())
     # =========================================================
     COORD_CAMPO_DESCRICAO_INTERNO   = (417, 513)
     COORD_CAMPO_NOME_ARVORE_INTERNO = (425, 568)
@@ -53,7 +50,7 @@ class SEIAutomation:
     COORD_CAMPO_NOME_ARVORE          = (616, 413)
     COORD_RADIO_NATO_DIGITAL         = (411, 482)
     COORD_RADIO_DIGITALIZADO         = (410, 503)
-    COORD_DROPDOWN_TIPO_CONFERENCIA  = (1056, 478)  # ← CALIBRAR (só aparece ao clicar Digitalizado)
+    COORD_DROPDOWN_TIPO_CONFERENCIA  = (1056, 478)
     COORD_BTN_ANEXAR_ARQUIVO         = (406, 608)
     COORD_RADIO_PUBLICO_EXTERNO      = (1114, 541)
 
@@ -129,7 +126,6 @@ class SEIAutomation:
         """
         Preenche os campos Descrição e Nome na Árvore do formulário
         de documento interno usando coordenadas fixas.
-        Reutilizável para todos os documentos internos.
         """
         print("  ⏳ Aguardando formulário carregar...")
         self.aguardar(3)
@@ -259,6 +255,48 @@ class SEIAutomation:
         self.aguardar(0.8)
         print("✅ Texto colado")
 
+    def colar_despacho_com_link(self, texto_antes, link, texto_depois):
+        """
+        Cola o despacho em três partes para que o link #{...}# seja
+        interpretado pelo SEI como referência clicável.
+
+        1. Cola o texto antes do link via Ctrl+V
+        2. Cola o link via Ctrl+V (SEI interpreta o #{...}# como hyperlink)
+        3. Cola o texto depois do link via Ctrl+V
+        """
+        print("📝 Colando despacho com link em três partes...")
+
+        # Clica na área de edição e limpa o conteúdo existente
+        pyautogui.click(self.COORD_AREA_EDICAO)
+        self.aguardar(0.3)
+        pyautogui.hotkey('ctrl', 'a')
+        self.aguardar(0.2)
+        pyautogui.press('delete')
+        self.aguardar(0.3)
+
+        # Parte 1: texto antes do link
+        print("  📋 Colando texto antes do link...")
+        pyperclip.copy(texto_antes)
+        self.aguardar(0.2)
+        pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.5)
+
+        # Parte 2: o link — Ctrl+V com o #{...}# no clipboard
+        print(f"  🔗 Colando link: {link}")
+        pyperclip.copy(link)
+        self.aguardar(0.2)
+        pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.5)
+
+        # Parte 3: texto depois do link
+        print("  📋 Colando texto depois do link...")
+        pyperclip.copy(texto_depois)
+        self.aguardar(0.2)
+        pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.5)
+
+        print("✅ Despacho colado com link!")
+
     def clicar_salvar_editor(self):
         """Salva (Ctrl+Alt+S) e fecha (Ctrl+W) o editor popup"""
         print("💾 Salvando no editor...")
@@ -281,7 +319,7 @@ class SEIAutomation:
         self.aguardar(1)
         caminho_windows = os.path.abspath(arquivo_path)
         pyperclip.copy(caminho_windows)
-        pyautogui.hotkey('ctrl', 'v')   # cola o caminho na janela do Windows
+        pyautogui.hotkey('ctrl', 'v')
         self.aguardar(0.5)
         pyautogui.press('enter')
         print("  ⏳ Processando upload...")
@@ -298,6 +336,49 @@ class SEIAutomation:
         except Exception as e:
             print(f"❌ Erro ao ler .docx: {e}")
             return ""
+
+    def capturar_link_documento_arvore(self, coord_icone):
+        """
+        Captura o link de um documento na árvore do SEI clicando
+        com botão ESQUERDO no ícone, depois Tab + Tab + Enter.
+        O link vai para a área de transferência automaticamente.
+
+        Args:
+            coord_icone: tupla (x, y) com a coordenada do ícone na árvore
+
+        Returns:
+            str: link capturado ou placeholder se falhar
+        """
+        print("🔗 Capturando link do documento na árvore...")
+
+        # Limpa o clipboard antes para detectar se o link foi capturado
+        pyperclip.copy('')
+        self.aguardar(0.3)
+
+        # Clica no ícone com botão esquerdo
+        print(f"  🖱️ Clicando no ícone em {coord_icone}...")
+        pyautogui.click(coord_icone)
+        self.aguardar(0.8)
+
+        # Tab + Tab + Enter para acionar a opção de copiar link
+        print("  ⌨️ Tab → Tab → Enter...")
+        pyautogui.press('tab')
+        self.aguardar(0.3)
+        pyautogui.press('tab')
+        self.aguardar(0.3)
+        pyautogui.press('enter')
+        self.aguardar(0.8)
+
+        # Lê o link do clipboard
+        link = pyperclip.paste()
+
+        # O SEI usa formato interno #{XXXXXXXX|XXXXXXXXXX}# ao copiar referência
+        if link and (link.startswith('#') or 'http' in link.lower()):
+            print(f"  ✅ Link capturado: {link}")
+            return link
+        else:
+            print(f"  ⚠️ Link não detectado no clipboard (valor: '{link}'). Usando placeholder.")
+            return '[LINK_DO_DOCUMENTO]'
 
     # =========================================================
     # DOCUMENTOS INTERNOS (print de PDF)
@@ -388,28 +469,41 @@ class SEIAutomation:
 
         print("✅ NOTA DE EMPENHO inserida!\n")
 
+        # Aguarda a tela principal recarregar antes de capturar o link
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
     def processar_documento_04_despacho_ne(self):
         """04. DESPACHO DE APROVAÇÃO DA NOTA DE EMPENHO"""
         print("\n" + "="*60)
         print("📄 DOCUMENTO 04: DESPACHO DE APROVAÇÃO DA NE")
         print("="*60)
 
-        print("⚠️ ATENÇÃO: Copie o link da NE na árvore do SEI")
-        print("   1. Clique com botão direito no ícone da Nota de Empenho")
-        print("   2. Selecione a opção de copiar link")
-        print("   Pressione ENTER quando o link estiver no clipboard...")
-        input()
+        # Captura o link da NE — fica armazenado na variável (clipboard será
+        # reusado mais tarde na colagem em três partes)
+        link_ne = self.capturar_link_documento_arvore(self.COORD_ICONE_NE_ARVORE)
 
-        link_ne = pyperclip.paste()
-        if not link_ne or 'http' not in link_ne.lower():
-            link_ne = '[LINK_DO_DOCUMENTO]'
-            print("⚠️ Link não detectado. Será usado placeholder.")
+        numero_ne = self.dados_contexto.get('ne_numero', '[NÚMERO]')
+        data_ne   = self.dados_contexto.get('ne_data',   '[DATA]')
 
-        texto = config.DESPACHO_APROVACAO_TEMPLATE.format(
-            numero_ne = self.dados_contexto.get('ne_numero', '[NÚMERO]'),
-            link_ne   = link_ne,
-            data_ne   = self.dados_contexto.get('ne_data', '[DATA]')
+        # Monta o template usando '<<<LINK>>>' como marcador temporário
+        # para depois dividir o texto em antes/depois do link
+        texto_completo = config.DESPACHO_APROVACAO_TEMPLATE.format(
+            numero_ne = numero_ne,
+            link_ne   = '<<<LINK>>>',
+            data_ne   = data_ne
         )
+
+        # Divide em duas partes ao redor do marcador
+        partes = texto_completo.split('<<<LINK>>>')
+        texto_antes  = partes[0]
+        texto_depois = partes[1] if len(partes) > 1 else ''
+
+        print(f"\n📋 Texto antes do link:")
+        print(f"  '{texto_antes}'")
+        print(f"🔗 Link: {link_ne}")
+        print(f"📋 Texto depois do link:")
+        print(f"  '{texto_depois}'")
 
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Despacho")
@@ -417,10 +511,95 @@ class SEIAutomation:
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.aguardar(2)
-        self.colar_texto_editor(texto)
+
+        # Cola em três partes: texto → link via Ctrl+V → texto
+        self.colar_despacho_com_link(texto_antes, link_ne, texto_depois)
+
         self.clicar_salvar_editor()
 
         print("✅ DESPACHO inserido!\n")
+
+    def processar_documento_05_ordem_bancaria(self, pdf_path):
+        """05. ORDEM BANCÁRIA"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 05: ORDEM BANCÁRIA")
+        print("="*60)
+
+        dados = pdf_utils.extrair_dados_ordem_bancaria(pdf_path)
+
+        if not dados['data'] or not dados['numero']:
+            print("⚠️ ATENÇÃO: Dados não extraídos completamente!")
+            print(f"  Data encontrada:   '{dados.get('data', '')}'")
+            print(f"  Número encontrado: '{dados.get('numero', '')}'")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Ordem bancaria")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        # Público ANTES de anexar (evita bagunça de layout)
+        self.selecionar_nivel_acesso_publico_externo()
+
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+
+        print("✅ ORDEM BANCÁRIA inserida!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_06_quadro_comparativo(self, pdf_path):
+        """06. QUADRO COMPARATIVO DE PREÇOS (Planilha de Pesquisa de Preço)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 06: QUADRO COMPARATIVO DE PREÇOS")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF do quadro comparativo")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Planilha")
+        self.preencher_formulario_interno("Planilha de pesquisa de preço", "Pesquisa de preço")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ QUADRO COMPARATIVO inserido!\n")
+
+    def processar_documento_06_quadro_comparativo(self, pdf_path):
+        """06. QUADRO COMPARATIVO DE PREÇOS (Planilha de Pesquisa de Preço)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 06: QUADRO COMPARATIVO DE PREÇOS")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Planilha")
+        self.preencher_formulario_interno("Planilha de pesquisa de preço", "Pesquisa de preço")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ QUADRO COMPARATIVO inserido!\n")
 
     # =========================================================
     # EXECUÇÃO PRINCIPAL
@@ -474,6 +653,12 @@ class SEIAutomation:
                 self.processar_documento_03_nota_empenho(self.documentos[2])
 
             self.processar_documento_04_despacho_ne()
+
+            if len(self.documentos) >= 4:
+                self.processar_documento_05_ordem_bancaria(self.documentos[3])
+
+            if len(self.documentos) >= 5:
+                self.processar_documento_06_quadro_comparativo(self.documentos[4])
 
             print("\n" + "="*70)
             print("✅ AUTOMAÇÃO CONCLUÍDA!")
