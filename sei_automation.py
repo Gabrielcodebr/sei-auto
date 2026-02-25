@@ -1146,9 +1146,6 @@ class SEIAutomation:
             if len(self.documentos) >= 4:
                 self.processar_documento_05_ordem_bancaria(self.documentos[3])
 
-            if len(self.documentos) >= 5:
-                self.processar_documento_06_quadro_comparativo(self.documentos[4])
-
             # ── Ciclos de Notas Fiscais ─────────────────────────────────
             # Cada ciclo: Quadro Comparativo → NF → Comprovante → Declaração
             #             → Consulta → CNPJ → Guia ISS (opcional) → Comprovante ISS (opcional)
