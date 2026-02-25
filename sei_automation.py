@@ -4,6 +4,7 @@ NAVEGADOR: Firefox
 """
 
 import os
+import re
 import time
 import pyautogui
 import pyperclip
@@ -77,11 +78,16 @@ class SEIAutomation:
         time.sleep(segundos)
 
     def carregar_documentos(self):
-        """Carrega e ordena lista de documentos da pasta"""
+        """Carrega e ordena lista de documentos da pasta (ordem numérica pelo prefixo)"""
         if not os.path.exists(self.pasta_documentos):
             raise Exception(f"Pasta não encontrada: {self.pasta_documentos}")
 
-        arquivos = sorted(os.listdir(self.pasta_documentos))
+        def chave_numerica(nome):
+            """Extrai o número do início do nome para ordenação correta: 1, 2, 3... 10, 11..."""
+            match = re.match(r'^(\d+)', nome)
+            return int(match.group(1)) if match else 9999
+
+        arquivos = sorted(os.listdir(self.pasta_documentos), key=chave_numerica)
         todos_docs = [
             os.path.join(self.pasta_documentos, f)
             for f in arquivos
@@ -101,6 +107,53 @@ class SEIAutomation:
     # =========================================================
     # AÇÕES BÁSICAS
     # =========================================================
+
+    def extrair_empresa_do_nome_arquivo(self, filepath):
+        """
+        Extrai o nome da empresa a partir do nome do arquivo.
+
+        Remove:
+        - Prefixo numérico:  "25-"
+        - Extensão:          ".pdf", ".docx"
+        - Palavras-chave:    NOTA FISCAL, COMPROVANTE DE PAGAMENTO NF,
+                             COMPROVANTE, CONSULTA, CADASTRO NACIONAL DE
+                             PESSOA JURIDICA, ISS Empresa -
+        - Número solto após keyword: ex "NOTA FISCAL 1939 ..." → remove "1939"
+
+        Exemplos:
+          "25-NOTA FISCAL 1939 MURILO CRISTOFOLETTI ARMENIO.pdf"
+              → "MURILO CRISTOFOLETTI ARMENIO"
+          "13-COMPROVANTE DE PAGAMENTO NF 8273 JOSÉ CARLOS ROSATI ITU.pdf"
+              → "JOSÉ CARLOS ROSATI ITU"
+          "17-ISS Empresa - GAMA FILTROS E REFRIGERACAO LTDA ME.pdf"
+              → "GAMA FILTROS E REFRIGERACAO LTDA ME"
+        """
+        nome = os.path.basename(filepath)
+        # Remove extensão
+        nome = os.path.splitext(nome)[0]
+        # Remove prefixo numérico e traço: "25-"
+        nome = re.sub(r'^\d+[-\s]*', '', nome)
+
+        # Remove keywords conhecidas (ordem importa — mais específico primeiro)
+        keywords = [
+            r'ISS\s+Empresa\s*[-–]\s*',
+            r'COMPROVANTE\s+DE\s+PAGAMENTO\s+NF\s*',
+            r'COMPROVANTE\s+DA\s+NOTA\s+FISCAL\s*',
+            r'COMPROVANTE\s*',
+            r'CADASTRO\s+NACIONAL\s+DE\s+PESSOA\s+JURIDICA\s*',
+            r'CONSULTA\s+CNPJ\s*',
+            r'CONSULTA\s+OPTANTE\s*',
+            r'NOTA\s+FISCAL\s*',
+            r'CONSULTA\s*',
+        ]
+        for kw in keywords:
+            nome = re.sub(kw, '', nome, flags=re.IGNORECASE).strip()
+
+        # Remove número solto que sobrou logo no início: "1939 MURILO..." → "MURILO..."
+        nome = re.sub(r'^\d+\s*', '', nome).strip()
+
+        print(f"  🏢 Empresa extraída do nome do arquivo: '{nome}'")
+        return nome or '[EMPRESA]'
 
     def clicar_botao_incluir_documento(self):
         print("\n🖱️ Clicando em 'Incluir Documento'...")
@@ -197,6 +250,36 @@ class SEIAutomation:
         self.aguardar(0.3)
         print("✅ Público selecionado")
 
+    def verificar_popup_documento_similar(self, tentativas=5):
+        """
+        Verifica se o SEI exibiu popup de documento similar após salvar.
+        Estratégia: tira screenshot da região do popup e busca texto chave.
+        Como fallback, pressiona Enter pois o botão OK já fica focado por padrão.
+        """
+        # Região central da tela onde popups do SEI aparecem (1600x900)
+        REGIAO_POPUP = (400, 300, 800, 300)  # x, y, largura, altura
+
+        for i in range(tentativas):
+            self.aguardar(0.8)
+            try:
+                screenshot = pyautogui.screenshot(region=REGIAO_POPUP)
+                texto = ocr_utils.extrair_texto_imagem(screenshot, preprocessar=False)
+
+                if 'deseja continuar' in texto.lower() or 'já existe' in texto.lower():
+                    print("  ⚠️ Popup de documento similar detectado! Clicando OK...")
+                    pyautogui.click(861, 526)
+                    self.aguardar(1)
+                    print("  ✅ Popup dispensado")
+                    return True
+            except Exception:
+                pass
+
+        # Fallback: pressiona Enter — se o popup estiver aberto o OK está focado,
+        # se não estiver não causa efeito colateral
+        pyautogui.press('enter')
+        self.aguardar(0.5)
+        return False
+
     def clicar_salvar(self):
         """Clica em Salvar e maximiza o popup do editor"""
         print("💾 Clicando em Salvar...")
@@ -266,34 +349,48 @@ class SEIAutomation:
         """
         print("📝 Colando despacho com link em três partes...")
 
-        # Clica na área de edição e limpa o conteúdo existente
+        # Clica UMA vez para focar o editor e não toca mais no mouse
         pyautogui.click(self.COORD_AREA_EDICAO)
-        self.aguardar(0.3)
+        self.aguardar(0.5)
+
+        # Limpa o conteúdo padrão do editor
         pyautogui.hotkey('ctrl', 'a')
-        self.aguardar(0.2)
-        pyautogui.press('delete')
         self.aguardar(0.3)
+        pyautogui.press('delete')
+        self.aguardar(0.5)
 
         # Parte 1: texto antes do link
         print("  📋 Colando texto antes do link...")
         pyperclip.copy(texto_antes)
-        self.aguardar(0.2)
+        self.aguardar(0.3)
         pyautogui.hotkey('ctrl', 'v')
-        self.aguardar(0.5)
+        self.aguardar(0.8)
 
-        # Parte 2: o link — Ctrl+V com o #{...}# no clipboard
+        # Parte 2: o link — #{...}# colado como texto, SEI converte em hyperlink
         print(f"  🔗 Colando link: {link}")
         pyperclip.copy(link)
-        self.aguardar(0.2)
+        self.aguardar(0.3)
         pyautogui.hotkey('ctrl', 'v')
+        self.aguardar(0.8)
+
+        # Clica numa área vazia do editor para refocar de forma mais natural
+        pyautogui.click(934, 496)
         self.aguardar(0.5)
+
+        # Espaço + dois Enters para "confirmar" o link no editor do SEI
+        pyautogui.press('space')
+        self.aguardar(0.2)
+        pyautogui.press('enter')
+        self.aguardar(0.2)
+        pyautogui.press('enter')
+        self.aguardar(0.3)
 
         # Parte 3: texto depois do link
         print("  📋 Colando texto depois do link...")
         pyperclip.copy(texto_depois)
-        self.aguardar(0.2)
+        self.aguardar(0.3)
         pyautogui.hotkey('ctrl', 'v')
-        self.aguardar(0.5)
+        self.aguardar(0.8)
 
         print("✅ Despacho colado com link!")
 
@@ -467,6 +564,9 @@ class SEIAutomation:
 
         self.clicar_salvar()
 
+        # Verifica popup "documento similar" antes de prosseguir
+        self.verificar_popup_documento_similar()
+
         print("✅ NOTA DE EMPENHO inserida!\n")
 
         # Aguarda a tela principal recarregar antes de capturar o link
@@ -556,6 +656,9 @@ class SEIAutomation:
 
         self.clicar_salvar()
 
+        # Verifica popup "documento similar" antes de prosseguir
+        self.verificar_popup_documento_similar()
+
         print("✅ ORDEM BANCÁRIA inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
@@ -569,37 +672,404 @@ class SEIAutomation:
 
         imagem = pdf_utils.processar_print_padrao(pdf_path)
         if not imagem:
-            raise Exception("Erro ao renderizar PDF do quadro comparativo")
-
-        self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Planilha")
-        self.preencher_formulario_interno("Planilha de pesquisa de preço", "Pesquisa de preço")
-        self.selecionar_nivel_acesso_publico()
-        self.clicar_salvar()
-        self.colar_imagem_editor(imagem)
-        self.clicar_salvar_editor()
-
-        print("✅ QUADRO COMPARATIVO inserido!\n")
-
-    def processar_documento_06_quadro_comparativo(self, pdf_path):
-        """06. QUADRO COMPARATIVO DE PREÇOS (Planilha de Pesquisa de Preço)"""
-        print("\n" + "="*60)
-        print("📄 DOCUMENTO 06: QUADRO COMPARATIVO DE PREÇOS")
-        print("="*60)
-
-        imagem = pdf_utils.processar_print_padrao(pdf_path)
-        if not imagem:
             raise Exception("Erro ao renderizar PDF")
 
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Planilha")
-        self.preencher_formulario_interno("Planilha de pesquisa de preço", "Pesquisa de preço")
+        self.preencher_formulario_interno("Quadro comparativo", "Quadro comparativo")
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
         self.clicar_salvar_editor()
 
         print("✅ QUADRO COMPARATIVO inserido!\n")
+
+    def selecionar_tipo_conferencia(self, tipo="Cópia Autenticada Administrativamente"):
+        """
+        Seleciona o tipo de conferência no dropdown (documentos digitalizados).
+        Digita as primeiras palavras para filtrar e pressiona Enter.
+        """
+        print(f"📋 Selecionando tipo de conferência: '{tipo}'")
+        pyautogui.click(self.COORD_DROPDOWN_TIPO_CONFERENCIA)
+        self.aguardar(0.8)
+        pyautogui.press('down')
+        self.aguardar(0.3)
+        pyautogui.press('enter')
+        self.aguardar(0.5)
+        print("✅ Tipo de conferência selecionado")
+
+    def processar_documento_07_nota_fiscal(self, pdf_path):
+        """07. NOTA FISCAL"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 07: NOTA FISCAL")
+        print("="*60)
+
+        dados = pdf_utils.extrair_dados_nota_fiscal(pdf_path)
+
+        if not dados['data'] or not dados['numero']:
+            print("⚠️ ATENÇÃO: Dados não extraídos completamente!")
+            print(f"  Data:    '{dados.get('data', '')}'")
+            print(f"  Número:  '{dados.get('numero', '')}'")
+
+        # Empresa vem do nome do arquivo (mais confiável que OCR)
+        empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
+
+        # Guarda no contexto — comprovante reutiliza
+        self.dados_contexto['nf_data']    = dados['data']   or '[DATA]'
+        self.dados_contexto['nf_numero']  = dados['numero'] or '[NÚMERO]'
+        self.dados_contexto['nf_empresa'] = empresa
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Nota Fiscal")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
+        # Nome na árvore: nome da empresa
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, self.dados_contexto['nf_empresa'])
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+
+        # Verifica popup "documento similar" antes de prosseguir
+        self.verificar_popup_documento_similar()
+
+        print("✅ NOTA FISCAL inserida!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_08_comprovante_fiscal(self, pdf_path):
+        """08. COMPROVANTE DA NOTA FISCAL (digitalizado)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 08: COMPROVANTE DA NOTA FISCAL")
+        print("="*60)
+
+        # Reutiliza os dados da NF já extraída (inclusive empresa do nome do arquivo)
+        data    = self.dados_contexto.get('nf_data',    '[DATA]')
+        numero  = self.dados_contexto.get('nf_numero',  '[NÚMERO]')
+        empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Comprovante")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        data)
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      numero)
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+
+        # Digitalizado → habilita dropdown de tipo de conferência
+        pyautogui.click(self.COORD_RADIO_DIGITALIZADO)
+        self.aguardar(0.5)
+
+        self.selecionar_tipo_conferencia("Cópia Autenticada Administrativamente")
+
+        self.selecionar_nivel_acesso_publico_externo()
+
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+
+        # Verifica popup "documento similar" antes de prosseguir
+        self.verificar_popup_documento_similar()
+
+        print("✅ COMPROVANTE FISCAL inserido!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_09_declaracao_recebimento(self, docx_path):
+        """09. DECLARAÇÃO DE RECEBIMENTO (interno - print da primeira página do .docx)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 09: DECLARAÇÃO DE RECEBIMENTO")
+        print("="*60)
+
+        imagem = pdf_utils.renderizar_docx_como_imagem(docx_path)
+        if not imagem:
+            raise Exception(
+                "Erro ao renderizar .docx da declaração.\n"
+                "Instale o LibreOffice: https://www.libreoffice.org/download/\n"
+                "Ou verifique se está instalado em C:\\Program Files\\LibreOffice\\"
+            )
+
+        # Nome na árvore = empresa do ciclo atual
+        empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Declaracao")
+        self.preencher_formulario_interno(
+            "Declaração de Recebimento, Conformidade e Destinação",
+            empresa
+        )
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ DECLARAÇÃO DE RECEBIMENTO inserida!\n")
+
+    def processar_documento_10_consulta_optante(self, pdf_path):
+        """10. CONSULTA DE OPTANTE (documento externo)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 10: CONSULTA DE OPTANTE")
+        print("="*60)
+
+        dados   = pdf_utils.extrair_dados_consulta(pdf_path)
+        empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
+
+        self.dados_contexto['consulta_cnpj'] = dados['numero']  # guarda para o doc 11
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Consulta")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'] or '[CNPJ]')
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+        self.verificar_popup_documento_similar()
+
+        print("✅ CONSULTA DE OPTANTE inserida!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_11_cnpj(self, pdf_path):
+        """11. CNPJ (documento externo)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 11: CNPJ")
+        print("="*60)
+
+        dados   = pdf_utils.extrair_dados_cnpj(pdf_path)
+        empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
+        # Reutiliza o CNPJ já encontrado na consulta (mais confiável)
+        cnpj    = self.dados_contexto.get('consulta_cnpj') or dados['numero'] or '[CNPJ]'
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Cadastro Nacional De Pessoa Jurídica")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      cnpj)
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+        self.verificar_popup_documento_similar()
+
+        print("✅ CNPJ inserido!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_12_guia_iss(self, pdf_path):
+        """12. GUIA DE ISS (documento externo, opcional)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 12: GUIA DE ISS")
+        print("="*60)
+
+        dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Guia de recolhimento")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+        self.verificar_popup_documento_similar()
+
+        print("✅ GUIA DE ISS inserida!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_13_comprovante_iss(self, pdf_path):
+        """13. COMPROVANTE DE ISS (documento externo, opcional)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 13: COMPROVANTE DE ISS")
+        print("="*60)
+
+        dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Comprovante")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+        self.verificar_popup_documento_similar()
+
+        print("✅ COMPROVANTE DE ISS inserido!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_14_balancete(self, pdf_path):
+        """14. BALANCETE DE DESPESAS COM ADIANTAMENTO (interno)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 14: BALANCETE")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF do balancete")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Balancete")
+        self.preencher_formulario_interno("Balancete de despesas com adiantamento", "Balancete")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ BALANCETE inserido!\n")
+
+    def processar_documento_15_extrato_bancario(self, pdf_path):
+        """15. EXTRATO BANCÁRIO (externo)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 15: EXTRATO BANCÁRIO")
+        print("="*60)
+
+        data = pdf_utils.extrair_data_extrato(pdf_path)
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Externo")
+        self.aguardar(1.5)
+
+        self.selecionar_dropdown_tipo_externo("Extrato")
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        data)
+        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, "Bancário")
+
+        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        self.aguardar(0.3)
+
+        self.selecionar_nivel_acesso_publico_externo()
+        self.anexar_arquivo_externo(pdf_path)
+
+        print("  📜 Ajustando scroll após upload...")
+        for _ in range(3):
+            pyautogui.scroll(-400)
+            self.aguardar(0.2)
+
+        self.clicar_salvar()
+        self.verificar_popup_documento_similar()
+
+        print("✅ EXTRATO BANCÁRIO inserido!\n")
+
+        print("  ⏳ Aguardando tela principal recarregar...")
+        self.aguardar(2)
+
+    def processar_documento_16_conciliacao_contabil(self, pdf_path):
+        """16. RELATÓRIO DE CONCILIAÇÃO CONTÁBIL (interno)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 16: CONCILIAÇÃO CONTÁBIL")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF da conciliação")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Conciliacao")
+        self.preencher_formulario_interno("Relatório de conciliação contábil", "Conciliação contábil")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ CONCILIAÇÃO CONTÁBIL inserida!\n")
+
+    def processar_documento_17_declaracao_encerramento(self, pdf_path):
+        """17. DECLARAÇÃO DE ENCERRAMENTO (interno)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 17: DECLARAÇÃO DE ENCERRAMENTO")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF da declaração de encerramento")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Declaracao")
+        self.preencher_formulario_interno("Declaração de encerramento", "Encerramento")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ DECLARAÇÃO DE ENCERRAMENTO inserida!\n")
 
     # =========================================================
     # EXECUÇÃO PRINCIPAL
@@ -622,6 +1092,24 @@ class SEIAutomation:
             print("\n❌ Nenhum documento encontrado!")
             return False
 
+        # ── Detecta posição do Balancete para delimitar os ciclos ──────
+        idx_balancete = None
+        for i, doc in enumerate(self.documentos):
+            if 'balancete' in os.path.basename(doc).lower():
+                idx_balancete = i
+                break
+
+        if idx_balancete is not None:
+            docs_ciclo   = self.documentos[4:idx_balancete]
+            docs_finais  = self.documentos[idx_balancete:]
+            print(f"\n📊 Balancete encontrado na posição {idx_balancete + 1}")
+            print(f"   Arquivos nos ciclos: {len(docs_ciclo)}")
+            print(f"   Arquivos finais:     {len(docs_finais)}")
+        else:
+            docs_ciclo  = self.documentos[4:]
+            docs_finais = []
+            print("\n⚠️ Balancete não encontrado — processando tudo como ciclos")
+
         print("\n" + "="*70)
         print("⚠️  INSTRUÇÕES:")
         print("="*70)
@@ -643,6 +1131,7 @@ class SEIAutomation:
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
 
         try:
+            # ── Documentos fixos ────────────────────────────────────────
             if len(self.documentos) >= 1:
                 self.processar_documento_01_capa(self.documentos[0])
 
@@ -659,6 +1148,54 @@ class SEIAutomation:
 
             if len(self.documentos) >= 5:
                 self.processar_documento_06_quadro_comparativo(self.documentos[4])
+
+            # ── Ciclos de Notas Fiscais ─────────────────────────────────
+            # Cada ciclo: Quadro Comparativo → NF → Comprovante → Declaração
+            #             → Consulta → CNPJ → Guia ISS (opcional) → Comprovante ISS (opcional)
+            idx = 0
+            num_nf = 1
+            while idx < len(docs_ciclo):
+                restantes = docs_ciclo[idx:]
+
+                # Precisa de pelo menos 6 arquivos para um ciclo completo sem ISS
+                if len(restantes) < 6:
+                    print(f"\n⚠️ Apenas {len(restantes)} arquivo(s) restante(s) antes do balancete — encerrando ciclos.")
+                    break
+
+                print(f"\n{'='*70}")
+                print(f"🔁 CICLO NOTA FISCAL #{num_nf}")
+                print(f"{'='*70}")
+
+                self.processar_documento_06_quadro_comparativo(docs_ciclo[idx]);      idx += 1
+                self.processar_documento_07_nota_fiscal(docs_ciclo[idx]);             idx += 1
+                self.processar_documento_08_comprovante_fiscal(docs_ciclo[idx]);      idx += 1
+                self.processar_documento_09_declaracao_recebimento(docs_ciclo[idx]);  idx += 1
+                self.processar_documento_10_consulta_optante(docs_ciclo[idx]);        idx += 1
+                self.processar_documento_11_cnpj(docs_ciclo[idx]);                    idx += 1
+
+                # ISS opcional
+                while idx < len(docs_ciclo) and 'iss' in os.path.basename(docs_ciclo[idx]).lower():
+                    nome = os.path.basename(docs_ciclo[idx]).lower()
+                    if 'comprovante' in nome:
+                        self.processar_documento_13_comprovante_iss(docs_ciclo[idx])
+                    else:
+                        self.processar_documento_12_guia_iss(docs_ciclo[idx])
+                    idx += 1
+
+                num_nf += 1
+
+            # ── Documentos finais (após todos os ciclos) ────────────────
+            if len(docs_finais) >= 1:
+                self.processar_documento_14_balancete(docs_finais[0])
+
+            if len(docs_finais) >= 2:
+                self.processar_documento_15_extrato_bancario(docs_finais[1])
+
+            if len(docs_finais) >= 3:
+                self.processar_documento_16_conciliacao_contabil(docs_finais[2])
+
+            if len(docs_finais) >= 4:
+                self.processar_documento_17_declaracao_encerramento(docs_finais[3])
 
             print("\n" + "="*70)
             print("✅ AUTOMAÇÃO CONCLUÍDA!")
