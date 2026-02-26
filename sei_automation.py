@@ -1,6 +1,11 @@
 """
 Script de automação para inserção de documentos no SEI (SP)
 NAVEGADOR: Firefox
+
+VERSÃO 2.0 - Correções:
+- Número da Nota Fiscal extraído do nome do arquivo (mais confiável que OCR)
+- Menu interativo para iniciar de um ponto específico
+- Guia de Recolhimento do ISS com nome correto
 """
 
 import os
@@ -34,7 +39,8 @@ class SEIAutomation:
     # =========================================================
     # COORDENADAS - ÁRVORE DO PROCESSO
     # =========================================================
-    COORD_ICONE_NE_ARVORE = (49, 246)   # Ícone da Nota de Empenho na árvore
+    COORD_ICONE_NE_ARVORE_DMPP  = (49, 246)   # Ícone da Nota de Empenho na árvore (DMPP - 3º arquivo)
+    COORD_ICONE_NE_ARVORE_UFIEC = (48, 304)   # Ícone da Nota de Empenho na árvore (UFIEC - 5º arquivo)
 
     # =========================================================
     # COORDENADAS - FORMULÁRIO DOCUMENTO INTERNO
@@ -57,16 +63,24 @@ class SEIAutomation:
 
     # =========================================================
 
-    def __init__(self, pasta_documentos=None, pular_primeiros=0):
+    def __init__(self, pasta_documentos=None, pular_primeiros=0, ciclo_inicial=1, pular_docs_fixos=False, arquivo_inicial=None, tipo_processo='DMPP'):
         """
         Args:
-            pasta_documentos: Caminho da pasta com documentos
-            pular_primeiros:  Número de documentos para pular (já inseridos)
+            pasta_documentos:   Caminho da pasta com documentos
+            pular_primeiros:    Número de documentos para pular (já inseridos)
+            ciclo_inicial:      Número do ciclo de NF para iniciar (1 = primeiro ciclo)
+            pular_docs_fixos:   Se True, pula docs fixos iniciais
+            arquivo_inicial:    Número do arquivo para iniciar (ex: 31 para começar no arquivo 31)
+            tipo_processo:      'DMPP' (padrão) ou 'UFIEC' (com memorando)
         """
-        self.pasta_documentos = pasta_documentos or config.DOCUMENTOS_DIR
-        self.pular_primeiros  = pular_primeiros
-        self.documentos       = []
-        self.dados_contexto   = {}  # Dados compartilhados entre documentos
+        self.pasta_documentos  = pasta_documentos or config.DOCUMENTOS_DIR
+        self.pular_primeiros   = pular_primeiros
+        self.ciclo_inicial     = ciclo_inicial
+        self.pular_docs_fixos  = pular_docs_fixos
+        self.arquivo_inicial   = arquivo_inicial
+        self.tipo_processo     = tipo_processo
+        self.documentos        = []
+        self.dados_contexto    = {}  # Dados compartilhados entre documentos
 
     # =========================================================
     # UTILITÁRIOS
@@ -105,8 +119,80 @@ class SEIAutomation:
         return self.documentos
 
     # =========================================================
-    # AÇÕES BÁSICAS
+    # FUNÇÕES DE EXTRAÇÃO DO NOME DO ARQUIVO
     # =========================================================
+
+    def identificar_tipo_documento_ciclo(self, filepath):
+        """
+        Identifica qual tipo de documento do ciclo é o arquivo.
+        
+        Retorna:
+            'quadro'       - Quadro Comparativo (1º do ciclo)
+            'nota_fiscal'  - Nota Fiscal (2º do ciclo)
+            'comprovante'  - Comprovante da NF (3º do ciclo)
+            'declaracao'   - Declaração de Recebimento (4º do ciclo)
+            'consulta'     - Consulta Optante (5º do ciclo)
+            'cnpj'         - CNPJ (6º do ciclo)
+            'guia_iss'     - Guia de ISS (opcional)
+            'comprov_iss'  - Comprovante de ISS (opcional)
+            None           - Não identificado
+        """
+        nome = os.path.basename(filepath).lower()
+        
+        # ISS primeiro (mais específico)
+        if 'iss' in nome:
+            if 'comprovante' in nome:
+                return 'comprov_iss'
+            else:
+                return 'guia_iss'
+        
+        # Documentos do ciclo
+        if 'quadro' in nome or 'planilha' in nome or 'comparativo' in nome:
+            return 'quadro'
+        if 'nota fiscal' in nome or 'nf ' in nome or 'nf-' in nome:
+            return 'nota_fiscal'
+        if 'comprovante' in nome:
+            return 'comprovante'
+        if 'declaracao' in nome or 'declaração' in nome or filepath.lower().endswith('.docx'):
+            return 'declaracao'
+        if 'consulta' in nome or 'optante' in nome:
+            return 'consulta'
+        if 'cnpj' in nome or 'cadastro' in nome:
+            return 'cnpj'
+        
+        return None
+
+    def extrair_numero_nota_fiscal_do_nome(self, filepath):
+        """
+        Extrai o número da nota fiscal do nome do arquivo.
+        
+        O nome do arquivo segue o padrão: "XX-NOTA FISCAL NNNNN EMPRESA..."
+        Onde XX é a ordem e NNNNN é o número da nota.
+        
+        Exemplos:
+            "37-NOTA FISCAL 17249 ITU LUZ COMÉRCIO.pdf" → "17249"
+            "7-NF 12345 EMPRESA XYZ.pdf" → "12345"
+        
+        Returns:
+            String com o número da nota ou None se não encontrado
+        """
+        nome = os.path.basename(filepath)
+        nome_sem_ext = os.path.splitext(nome)[0]
+        
+        # Remove prefixo numérico (ordem): "37-" ou "7-"
+        nome_sem_ordem = re.sub(r'^\d+[-\s]*', '', nome_sem_ext)
+        
+        # Encontra todos os números restantes
+        numeros = re.findall(r'\d+', nome_sem_ordem)
+        
+        if numeros:
+            # O primeiro número após remover a ordem é o número da nota
+            numero = numeros[0]
+            print(f"  🔢 Número NF extraído do nome do arquivo: {numero}")
+            return numero
+        
+        print("  ⚠️ Número NF não encontrado no nome do arquivo")
+        return None
 
     def extrair_empresa_do_nome_arquivo(self, filepath):
         """
@@ -144,6 +230,7 @@ class SEIAutomation:
             r'CONSULTA\s+CNPJ\s*',
             r'CONSULTA\s+OPTANTE\s*',
             r'NOTA\s+FISCAL\s*',
+            r'GUIA\s+ISS\s*',
             r'CONSULTA\s*',
         ]
         for kw in keywords:
@@ -154,6 +241,10 @@ class SEIAutomation:
 
         print(f"  🏢 Empresa extraída do nome do arquivo: '{nome}'")
         return nome or '[EMPRESA]'
+
+    # =========================================================
+    # AÇÕES BÁSICAS
+    # =========================================================
 
     def clicar_botao_incluir_documento(self):
         print("\n🖱️ Clicando em 'Incluir Documento'...")
@@ -521,6 +612,26 @@ class SEIAutomation:
 
         print("✅ SOLICITAÇÃO inserida!\n")
 
+    def processar_documento_02b_memorando_justificativa(self, pdf_path):
+        """02b. MEMORANDO/JUSTIFICATIVA (somente UFIEC)"""
+        print("\n" + "="*60)
+        print("📄 DOCUMENTO 02b: MEMORANDO/JUSTIFICATIVA")
+        print("="*60)
+
+        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        if not imagem:
+            raise Exception("Erro ao renderizar PDF")
+
+        self.clicar_botao_incluir_documento()
+        self.pesquisar_e_selecionar_tipo_doc("Memorando")
+        self.preencher_formulario_interno("Memorando/Justificativa", "Justificativa")
+        self.selecionar_nivel_acesso_publico()
+        self.clicar_salvar()
+        self.colar_imagem_editor(imagem)
+        self.clicar_salvar_editor()
+
+        print("✅ MEMORANDO/JUSTIFICATIVA inserido!\n")
+
     # =========================================================
     # DOCUMENTOS EXTERNOS (upload de PDF)
     # =========================================================
@@ -579,9 +690,13 @@ class SEIAutomation:
         print("📄 DOCUMENTO 04: DESPACHO DE APROVAÇÃO DA NE")
         print("="*60)
 
-        # Captura o link da NE — fica armazenado na variável (clipboard será
-        # reusado mais tarde na colagem em três partes)
-        link_ne = self.capturar_link_documento_arvore(self.COORD_ICONE_NE_ARVORE)
+        # Captura o link da NE — usa coordenada diferente para UFIEC
+        if self.tipo_processo == 'UFIEC':
+            coord_ne = self.COORD_ICONE_NE_ARVORE_UFIEC
+        else:
+            coord_ne = self.COORD_ICONE_NE_ARVORE_DMPP
+        
+        link_ne = self.capturar_link_documento_arvore(coord_ne)
 
         numero_ne = self.dados_contexto.get('ne_numero', '[NÚMERO]')
         data_ne   = self.dados_contexto.get('ne_data',   '[DATA]')
@@ -706,6 +821,11 @@ class SEIAutomation:
 
         dados = pdf_utils.extrair_dados_nota_fiscal(pdf_path)
 
+        # NÚMERO: Pega do nome do arquivo (mais confiável que OCR!)
+        numero_do_nome = self.extrair_numero_nota_fiscal_do_nome(pdf_path)
+        if numero_do_nome:
+            dados['numero'] = numero_do_nome
+        
         if not dados['data'] or not dados['numero']:
             print("⚠️ ATENÇÃO: Dados não extraídos completamente!")
             print(f"  Data:    '{dados.get('data', '')}'")
@@ -905,9 +1025,9 @@ class SEIAutomation:
         self.aguardar(2)
 
     def processar_documento_12_guia_iss(self, pdf_path):
-        """12. GUIA DE ISS (documento externo, opcional)"""
+        """12. GUIA DE RECOLHIMENTO DO ISS (documento externo, opcional)"""
         print("\n" + "="*60)
-        print("📄 DOCUMENTO 12: GUIA DE ISS")
+        print("📄 DOCUMENTO 12: GUIA DE RECOLHIMENTO DO ISS")
         print("="*60)
 
         dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
@@ -916,6 +1036,7 @@ class SEIAutomation:
         self.pesquisar_e_selecionar_tipo_doc("Externo")
         self.aguardar(1.5)
 
+        # CORRIGIDO: Usa "Guia de recolhimento" (não "Comprovante")
         self.selecionar_dropdown_tipo_externo("Guia de recolhimento")
         self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
@@ -935,7 +1056,7 @@ class SEIAutomation:
         self.clicar_salvar()
         self.verificar_popup_documento_similar()
 
-        print("✅ GUIA DE ISS inserida!\n")
+        print("✅ GUIA DE RECOLHIMENTO DO ISS inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
         self.aguardar(2)
@@ -988,7 +1109,7 @@ class SEIAutomation:
 
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Balancete")
-        self.preencher_formulario_interno("Balancete de despesas com adiantamento", "Balancete")
+        self.preencher_formulario_interno("", "")  # Deixar vazio
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -1043,7 +1164,7 @@ class SEIAutomation:
 
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Conciliacao")
-        self.preencher_formulario_interno("Relatório de conciliação contábil", "Conciliação contábil")
+        self.preencher_formulario_interno("Conciliação bancária", "Conciliação bancária")
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -1099,14 +1220,17 @@ class SEIAutomation:
                 idx_balancete = i
                 break
 
+        # Índice onde começam os ciclos (DMPP=4, UFIEC=5 por ter o memorando)
+        inicio_ciclos = 5 if self.tipo_processo == 'UFIEC' else 4
+
         if idx_balancete is not None:
-            docs_ciclo   = self.documentos[4:idx_balancete]
+            docs_ciclo   = self.documentos[inicio_ciclos:idx_balancete]
             docs_finais  = self.documentos[idx_balancete:]
             print(f"\n📊 Balancete encontrado na posição {idx_balancete + 1}")
             print(f"   Arquivos nos ciclos: {len(docs_ciclo)}")
             print(f"   Arquivos finais:     {len(docs_finais)}")
         else:
-            docs_ciclo  = self.documentos[4:]
+            docs_ciclo  = self.documentos[inicio_ciclos:]
             docs_finais = []
             print("\n⚠️ Balancete não encontrado — processando tudo como ciclos")
 
@@ -1118,6 +1242,14 @@ class SEIAutomation:
         print("3. NÃO mexa no mouse/teclado durante a execução")
         print("4. Para CANCELAR: mova o mouse para o canto SUPERIOR ESQUERDO")
         print("="*70)
+
+        # Mostra informações sobre ponto de início
+        if self.pular_docs_fixos:
+            print("\n⏭️  MODO: Pulando documentos fixos (1-5)")
+        if self.ciclo_inicial > 1:
+            print(f"\n⏭️  MODO: Iniciando do ciclo {self.ciclo_inicial}")
+        if self.arquivo_inicial:
+            print(f"\n⏭️  MODO: Iniciando do arquivo {self.arquivo_inicial}")
 
         print("\n⏳ Iniciando em 10 segundos... (Ctrl+C para cancelar)")
         try:
@@ -1131,31 +1263,102 @@ class SEIAutomation:
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
 
         try:
-            # ── Documentos fixos ────────────────────────────────────────
-            if len(self.documentos) >= 1:
-                self.processar_documento_01_capa(self.documentos[0])
+            # ── Documentos fixos (pula se solicitado) ───────────────────
+            if not self.pular_docs_fixos and self.ciclo_inicial == 1 and not self.arquivo_inicial:
+                
+                if self.tipo_processo == 'UFIEC':
+                    # UFIEC: Capa → Memorando → Solicitação → NE → Despacho → OB
+                    print("\n📋 Processo UFIEC - Com Memorando/Justificativa")
+                    
+                    if len(self.documentos) >= 1:
+                        self.processar_documento_01_capa(self.documentos[0])
 
-            if len(self.documentos) >= 2:
-                self.processar_documento_02_solicitacao(self.documentos[1])
+                    if len(self.documentos) >= 2:
+                        self.processar_documento_02b_memorando_justificativa(self.documentos[1])
 
-            if len(self.documentos) >= 3:
-                self.processar_documento_03_nota_empenho(self.documentos[2])
+                    if len(self.documentos) >= 3:
+                        self.processar_documento_02_solicitacao(self.documentos[2])
 
-            self.processar_documento_04_despacho_ne()
+                    if len(self.documentos) >= 4:
+                        self.processar_documento_03_nota_empenho(self.documentos[3])
 
-            if len(self.documentos) >= 4:
-                self.processar_documento_05_ordem_bancaria(self.documentos[3])
+                    self.processar_documento_04_despacho_ne()
+
+                    if len(self.documentos) >= 5:
+                        self.processar_documento_05_ordem_bancaria(self.documentos[4])
+                else:
+                    # DMPP (padrão): Capa → Solicitação → NE → Despacho → OB
+                    print("\n📋 Processo DMPP - Padrão")
+                    
+                    if len(self.documentos) >= 1:
+                        self.processar_documento_01_capa(self.documentos[0])
+
+                    if len(self.documentos) >= 2:
+                        self.processar_documento_02_solicitacao(self.documentos[1])
+
+                    if len(self.documentos) >= 3:
+                        self.processar_documento_03_nota_empenho(self.documentos[2])
+
+                    self.processar_documento_04_despacho_ne()
+
+                    if len(self.documentos) >= 4:
+                        self.processar_documento_05_ordem_bancaria(self.documentos[3])
+            else:
+                print("\n⏭️  Pulando documentos fixos...")
 
             # ── Ciclos de Notas Fiscais ─────────────────────────────────
             # Cada ciclo: Quadro Comparativo → NF → Comprovante → Declaração
             #             → Consulta → CNPJ → Guia ISS (opcional) → Comprovante ISS (opcional)
             idx = 0
             num_nf = 1
+            
+            # Se arquivo_inicial foi especificado, encontra o índice correto
+            arquivo_inicial_idx = None
+            tipo_arquivo_inicial = None
+            
+            if self.arquivo_inicial:
+                # Encontra o arquivo com o número especificado
+                for i, doc in enumerate(docs_ciclo):
+                    nome = os.path.basename(doc)
+                    match = re.match(r'^(\d+)', nome)
+                    if match and int(match.group(1)) == self.arquivo_inicial:
+                        arquivo_inicial_idx = i
+                        tipo_arquivo_inicial = self.identificar_tipo_documento_ciclo(doc)
+                        print(f"\n📄 Arquivo {self.arquivo_inicial} encontrado: {nome}")
+                        print(f"   Tipo identificado: {tipo_arquivo_inicial}")
+                        break
+                
+                if arquivo_inicial_idx is None:
+                    print(f"\n⚠️ Arquivo {self.arquivo_inicial} não encontrado nos ciclos!")
+                    print("   Começando do primeiro ciclo...")
+            
+            # Pula ciclos se necessário (opção 3 do menu)
+            if self.ciclo_inicial > 1 and not self.arquivo_inicial:
+                ciclos_a_pular = self.ciclo_inicial - 1
+                print(f"\n⏭️  Pulando {ciclos_a_pular} ciclo(s)...")
+                
+                ciclos_pulados = 0
+                while idx < len(docs_ciclo) and ciclos_pulados < ciclos_a_pular:
+                    # Conta 6 arquivos base do ciclo
+                    arquivos_no_ciclo = 6
+                    
+                    # Verifica se há ISS no ciclo
+                    idx_temp = idx + 6
+                    while idx_temp < len(docs_ciclo) and 'iss' in os.path.basename(docs_ciclo[idx_temp]).lower():
+                        arquivos_no_ciclo += 1
+                        idx_temp += 1
+                    
+                    idx += arquivos_no_ciclo
+                    ciclos_pulados += 1
+                    num_nf += 1
+                
+                print(f"   Pulados {ciclos_pulados} ciclo(s), iniciando do ciclo {num_nf}")
+
             while idx < len(docs_ciclo):
                 restantes = docs_ciclo[idx:]
 
                 # Precisa de pelo menos 6 arquivos para um ciclo completo sem ISS
-                if len(restantes) < 6:
+                if len(restantes) < 6 and arquivo_inicial_idx is None:
                     print(f"\n⚠️ Apenas {len(restantes)} arquivo(s) restante(s) antes do balancete — encerrando ciclos.")
                     break
 
@@ -1163,20 +1366,91 @@ class SEIAutomation:
                 print(f"🔁 CICLO NOTA FISCAL #{num_nf}")
                 print(f"{'='*70}")
 
-                self.processar_documento_06_quadro_comparativo(docs_ciclo[idx]);      idx += 1
-                self.processar_documento_07_nota_fiscal(docs_ciclo[idx]);             idx += 1
-                self.processar_documento_08_comprovante_fiscal(docs_ciclo[idx]);      idx += 1
-                self.processar_documento_09_declaracao_recebimento(docs_ciclo[idx]);  idx += 1
-                self.processar_documento_10_consulta_optante(docs_ciclo[idx]);        idx += 1
-                self.processar_documento_11_cnpj(docs_ciclo[idx]);                    idx += 1
+                # Verifica se deve pular para o arquivo_inicial
+                deve_pular = False
+                if arquivo_inicial_idx is not None and idx < arquivo_inicial_idx:
+                    deve_pular = True
 
-                # ISS opcional
+                # Quadro Comparativo
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None  # Resetar para não pular mais
+                    self.processar_documento_06_quadro_comparativo(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+                if idx >= len(docs_ciclo): break
+
+                # Nota Fiscal
+                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None
+                    self.processar_documento_07_nota_fiscal(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+                if idx >= len(docs_ciclo): break
+
+                # Comprovante Fiscal
+                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None
+                    self.processar_documento_08_comprovante_fiscal(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+                if idx >= len(docs_ciclo): break
+
+                # Declaração de Recebimento
+                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None
+                    self.processar_documento_09_declaracao_recebimento(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+                if idx >= len(docs_ciclo): break
+
+                # Consulta Optante
+                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None
+                    self.processar_documento_10_consulta_optante(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+                if idx >= len(docs_ciclo): break
+
+                # CNPJ
+                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
+                if not deve_pular or (arquivo_inicial_idx == idx):
+                    if arquivo_inicial_idx == idx:
+                        arquivo_inicial_idx = None
+                    self.processar_documento_11_cnpj(docs_ciclo[idx])
+                else:
+                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
+                idx += 1
+
+                # ISS opcional - verifica pelo nome do arquivo
                 while idx < len(docs_ciclo) and 'iss' in os.path.basename(docs_ciclo[idx]).lower():
+                    deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
                     nome = os.path.basename(docs_ciclo[idx]).lower()
-                    if 'comprovante' in nome:
-                        self.processar_documento_13_comprovante_iss(docs_ciclo[idx])
+                    
+                    if not deve_pular or (arquivo_inicial_idx == idx):
+                        if arquivo_inicial_idx == idx:
+                            arquivo_inicial_idx = None
+                        # Se tiver "comprovante" no nome, é comprovante de ISS
+                        # Caso contrário, é guia de ISS
+                        if 'comprovante' in nome:
+                            self.processar_documento_13_comprovante_iss(docs_ciclo[idx])
+                        else:
+                            self.processar_documento_12_guia_iss(docs_ciclo[idx])
                     else:
-                        self.processar_documento_12_guia_iss(docs_ciclo[idx])
+                        print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
                     idx += 1
 
                 num_nf += 1
@@ -1212,16 +1486,137 @@ class SEIAutomation:
 
 
 # =========================================================
+# MENU INTERATIVO
+# =========================================================
+
+def exibir_menu_tipo_processo():
+    """Pergunta qual tipo de processo"""
+    print("\n" + "="*70)
+    print("🤖 SEI AUTOMATION - Sistema de Inserção Automática de Documentos")
+    print("="*70)
+    print("\nQual o tipo de processo?\n")
+    print("  [1] DMPP (padrão)")
+    print("  [2] UFIEC (com memorando)")
+    print("  [0] Sair")
+    print()
+    
+    try:
+        opcao = input("Opção: ").strip()
+        
+        if opcao == '0':
+            print("\n👋 Saindo...")
+            return None
+        
+        if opcao == '1':
+            return 'DMPP'
+        
+        if opcao == '2':
+            return 'UFIEC'
+        
+        print("❌ Opção inválida")
+        return exibir_menu_tipo_processo()
+        
+    except KeyboardInterrupt:
+        print("\n\n👋 Saindo...")
+        return None
+
+
+def exibir_menu(tipo_processo):
+    """Exibe menu interativo e retorna as opções selecionadas"""
+    
+    # Define quantidade de docs fixos baseado no tipo
+    docs_fixos = "1-6" if tipo_processo == 'UFIEC' else "1-5"
+    
+    print("\n" + "-"*70)
+    print(f"Tipo de processo: {tipo_processo}")
+    print("-"*70)
+    print("\nEscolha uma opção:\n")
+    print(f"  [1] Executar do início (todos os documentos)")
+    print(f"  [2] Pular documentos fixos (começar do ciclo 1)")
+    print("  [3] Começar de um ciclo específico")
+    print("  [4] Começar de um arquivo específico")
+    print("  [0] Sair")
+    print()
+    
+    try:
+        opcao = input("Opção: ").strip()
+        
+        if opcao == '0':
+            print("\n👋 Saindo...")
+            return None
+        
+        if opcao == '1':
+            return {'pular_docs_fixos': False, 'ciclo_inicial': 1, 'arquivo_inicial': None}
+        
+        if opcao == '2':
+            return {'pular_docs_fixos': True, 'ciclo_inicial': 1, 'arquivo_inicial': None}
+        
+        if opcao == '3':
+            print()
+            ciclo = input("Qual ciclo? (número): ").strip()
+            try:
+                ciclo_num = int(ciclo)
+                if ciclo_num < 1:
+                    print("❌ Número inválido. Usando ciclo 1.")
+                    ciclo_num = 1
+                return {'pular_docs_fixos': True, 'ciclo_inicial': ciclo_num, 'arquivo_inicial': None}
+            except ValueError:
+                print("❌ Número inválido. Usando ciclo 1.")
+                return {'pular_docs_fixos': True, 'ciclo_inicial': 1, 'arquivo_inicial': None}
+        
+        if opcao == '4':
+            print()
+            arquivo = input("Qual o número do arquivo? (ex: 31): ").strip()
+            try:
+                arquivo_num = int(arquivo)
+                if arquivo_num < 1:
+                    print("❌ Número inválido.")
+                    return exibir_menu(tipo_processo)
+                return {'pular_docs_fixos': True, 'ciclo_inicial': 1, 'arquivo_inicial': arquivo_num}
+            except ValueError:
+                print("❌ Número inválido.")
+                return exibir_menu(tipo_processo)
+        
+        print("❌ Opção inválida")
+        return exibir_menu(tipo_processo)
+        
+    except KeyboardInterrupt:
+        print("\n\n👋 Saindo...")
+        return None
+
+
+# =========================================================
 # EXECUÇÃO
 # =========================================================
 
 if __name__ == "__main__":
-    print("="*70)
-    print("SEI AUTOMATION - Sistema de Inserção Automática de Documentos")
-    print("="*70)
-
-    # Para pular docs já inseridos: SEIAutomation(pular_primeiros=2)
-    automacao = SEIAutomation()
+    # Primeiro menu: tipo de processo
+    tipo_processo = exibir_menu_tipo_processo()
+    
+    if tipo_processo is None:
+        exit(0)
+    
+    # Segundo menu: opções de execução
+    opcoes = exibir_menu(tipo_processo)
+    
+    if opcoes is None:
+        exit(0)
+    
+    print(f"\n📋 Configuração selecionada:")
+    print(f"   Tipo de processo: {tipo_processo}")
+    print(f"   Pular docs fixos: {opcoes['pular_docs_fixos']}")
+    print(f"   Ciclo inicial:    {opcoes['ciclo_inicial']}")
+    if opcoes.get('arquivo_inicial'):
+        print(f"   Arquivo inicial:  {opcoes['arquivo_inicial']}")
+    
+    # Cria instância com as opções selecionadas
+    automacao = SEIAutomation(
+        pular_docs_fixos=opcoes['pular_docs_fixos'],
+        ciclo_inicial=opcoes['ciclo_inicial'],
+        arquivo_inicial=opcoes.get('arquivo_inicial'),
+        tipo_processo=tipo_processo
+    )
+    
     sucesso = automacao.executar()
 
     if sucesso:

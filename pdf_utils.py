@@ -2,6 +2,11 @@
 Funções para manipulação de arquivos PDF
 ATUALIZADO: Usa PyMuPDF (fitz) ao invés de pdf2image
 Não precisa mais do Poppler!
+
+VERSÃO 2.0 - Correções:
+- Data da Nota de Empenho: extrai após "Data Emissão"
+- Data da Ordem Bancária: extrai após "Data Pagamento"
+- Resolução dos prints reduzida em 20%
 """
 
 import os
@@ -13,20 +18,26 @@ import config
 import ocr_utils
 
 
+# ============== CONFIGURAÇÃO DE RESOLUÇÃO ==============
+# Fator de redução: 0.8 = 80% do original (20% menor)
+RESOLUTION_FACTOR = 0.8
+
+
 def renderizar_primeira_pagina_pdf(pdf_path, dpi=None):
     """
     Renderiza a primeira página de um PDF como imagem
     
     Args:
         pdf_path: Caminho do arquivo PDF
-        dpi: Resolução (usa config.PDF_DPI se None)
+        dpi: Resolução (usa config.PDF_DPI * RESOLUTION_FACTOR se None)
         
     Returns:
         Objeto PIL.Image da primeira página
     """
     try:
         if dpi is None:
-            dpi = config.PDF_DPI
+            # Aplica redução de 20% na resolução
+            dpi = int(config.PDF_DPI * RESOLUTION_FACTOR)
         
         doc = fitz.open(pdf_path)
         
@@ -46,6 +57,8 @@ def renderizar_primeira_pagina_pdf(pdf_path, dpi=None):
         imagem = Image.open(io.BytesIO(img_data))
         
         doc.close()
+        
+        print(f"  📐 Resolução: {dpi} DPI (reduzido em {int((1-RESOLUTION_FACTOR)*100)}%)")
         
         return imagem
         
@@ -112,7 +125,8 @@ def extrair_texto_completo_pdf(pdf_path):
     Extrai todo o texto de um PDF usando OCR
     """
     try:
-        imagem = renderizar_primeira_pagina_pdf(pdf_path)
+        # Usa DPI maior para OCR (precisa de mais detalhe para leitura)
+        imagem = renderizar_primeira_pagina_pdf(pdf_path, dpi=config.PDF_DPI)
         if imagem:
             return ocr_utils.extrair_texto_imagem(imagem)
         return ""
@@ -121,22 +135,68 @@ def extrair_texto_completo_pdf(pdf_path):
         return ""
 
 
+# ============== FUNÇÕES DE EXTRAÇÃO DE DATA ESPECÍFICA ==============
+
+def extrair_data_apos_campo(texto, campo):
+    """
+    Extrai a data que aparece logo após um campo específico.
+    
+    Args:
+        texto: Texto completo do documento
+        campo: Campo a procurar (ex: "Data Emissão", "Data Pagamento")
+    
+    Returns:
+        String com a data no formato DD/MM/YYYY ou None
+    """
+    # Padrões para encontrar o campo seguido de data
+    padroes = [
+        # Campo seguido por : ou espaço, depois data DD/MM/YYYY
+        rf'{campo}\s*[:\s]+(\d{{2}}[/\-]\d{{2}}[/\-]\d{{4}})',
+        # Campo com quebra de linha antes da data
+        rf'{campo}\s*\n\s*(\d{{2}}[/\-]\d{{2}}[/\-]\d{{4}})',
+        # Campo seguido por data YYYY-MM-DD (ISO)
+        rf'{campo}\s*[:\s]+(\d{{4}}[/\-]\d{{2}}[/\-]\d{{2}})',
+    ]
+    
+    for padrao in padroes:
+        match = re.search(padrao, texto, re.IGNORECASE | re.MULTILINE)
+        if match:
+            data = match.group(1)
+            # Converte YYYY-MM-DD para DD/MM/YYYY se necessário
+            if re.match(r'\d{4}[-/]\d{2}[-/]\d{2}', data):
+                partes = re.split(r'[-/]', data)
+                data = f"{partes[2]}/{partes[1]}/{partes[0]}"
+            return data
+    
+    return None
+
+
 def extrair_dados_nota_empenho(pdf_path):
     """
     Extrai dados específicos de uma Nota de Empenho.
+    - Data: DEVE estar após "Data Emissão" (não pega qualquer data)
+    - Número: padrão 2025NE03848
+    
     Retorna dicionário com 'data' e 'numero'.
     """
     try:
         print("  🔍 Extraindo dados da Nota de Empenho...")
         texto = extrair_texto_completo_pdf(pdf_path)
         
-        data   = ocr_utils.extrair_data(texto)
+        # DATA: Procura especificamente após "Data Emissão"
+        data = extrair_data_apos_campo(texto, r'Data\s*(?:de\s*)?Emiss[ãa]o')
+        
+        # Fallback: tenta "Emissão" sozinho
+        if not data:
+            data = extrair_data_apos_campo(texto, r'Emiss[ãa]o')
+        
+        # NÚMERO: padrão NE
         numero = ocr_utils.extrair_numero_documento(texto)
         
         if data:
-            print(f"  ✅ Data: {data}")
+            print(f"  ✅ Data (após 'Data Emissão'): {data}")
         else:
-            print("  ⚠️ Data não encontrada")
+            print("  ⚠️ Data de emissão não encontrada")
         
         if numero:
             print(f"  ✅ Número: {numero}")
@@ -153,7 +213,10 @@ def extrair_dados_nota_empenho(pdf_path):
 def extrair_dados_ordem_bancaria(pdf_path):
     """
     Extrai dados específicos de uma Ordem Bancária.
-    Usa regex específico para padrão OB (ex: 2025OB03848),
+    - Data: DEVE estar após "Data Pagamento" (não pega qualquer data)
+    - Número: padrão OB (ex: 2025OB03848)
+    
+    Usa regex específico para padrão OB,
     com fallbacks para leituras incorretas do Tesseract (0B, 08, O8).
 
     Retorna dicionário com 'data' e 'numero'.
@@ -164,10 +227,14 @@ def extrair_dados_ordem_bancaria(pdf_path):
 
         print(f"  📄 Texto extraído (primeiros 300 chars):\n{texto[:300]}")
 
-        data = ocr_utils.extrair_data(texto)
+        # DATA: Procura especificamente após "Data Pagamento"
+        data = extrair_data_apos_campo(texto, r'Data\s*(?:de\s*)?Pagamento')
+        
+        # Fallback: tenta "Pagamento" sozinho
+        if not data:
+            data = extrair_data_apos_campo(texto, r'Pagamento')
 
-        # Tenta variações que o Tesseract pode gerar para "OB":
-        # OB correto, 0B (zero+B), O8 (O+8), 08 (zero+8)
+        # NÚMERO: Tenta variações que o Tesseract pode gerar para "OB"
         padroes_ob = [
             r'\d{4}OB\d+',   # correto:  2025OB03848
             r'\d{4}0B\d+',   # zero + B: 20250B03848
@@ -187,9 +254,9 @@ def extrair_dados_ordem_bancaria(pdf_path):
                 break
 
         if data:
-            print(f"  ✅ Data: {data}")
+            print(f"  ✅ Data (após 'Data Pagamento'): {data}")
         else:
-            print("  ⚠️ Data não encontrada")
+            print("  ⚠️ Data de pagamento não encontrada")
 
         if not numero:
             print("  ⚠️ Número OB não encontrado — verifique o texto acima")
@@ -235,88 +302,14 @@ def renderizar_docx_como_imagem(docx_path):
         return None
 
 
-
-    """
-    Extrai dados específicos de uma Nota Fiscal.
-    - Número: busca após "NF-e" e "Nº"
-    - Empresa: busca por ME, LTDA, EIRELI na parte superior do documento
-    Retorna dicionário com 'data', 'numero' e 'empresa'.
-    """
-    try:
-        print("  🔍 Extraindo dados da Nota Fiscal...")
-        texto = extrair_texto_completo_pdf(pdf_path)
-
-        data = ocr_utils.extrair_data(texto)
-
-        # Número da NF: sempre na frente de "Nº", próximo a "NF-e" no documento
-        numero = None
-        pos_nfe = texto.upper().find('NF-E')
-        if pos_nfe == -1:
-            pos_nfe = texto.upper().find('NFE')
-        if pos_nfe != -1:
-            trecho = texto[pos_nfe:pos_nfe + 300]
-            match = re.search(r'N[°º]\s*[:\s]?\s*([\d.]+)', trecho, re.IGNORECASE)
-            if match:
-                numero = re.sub(r'[.\s]', '', match.group(1))  # remove pontos
-                numero = str(int(numero)) if numero.isdigit() else numero  # remove zeros à esquerda
-        if not numero:
-            match = re.search(r'N[°º]\s*[:\s]?\s*([\d.]+)', texto, re.IGNORECASE)
-            if match:
-                numero = re.sub(r'[.\s]', '', match.group(1))  # remove pontos
-                numero = str(int(numero)) if numero.isdigit() else numero  # remove zeros à esquerda
-
-        # Nome da empresa: captura o nome completo incluindo sufixos
-        # Sufixos primários:  LTDA, EIRELI, S.A., S/A, EPP, ME, SS, EI, INDIVIDUAL
-        # Sufixos secundários que podem vir depois (com ou sem traço):
-        #   LTDA - ME,  LTDA EPP,  EIRELI - ME,  etc.
-        SUFIXO_PRIMARIO  = r'(?:LTDA\.?|EIRELI\.?|S\.A\.|S/A|EI\b|INDIVIDUAL)'
-        SUFIXO_SECUNDARIO = r'(?:\s*[-–]?\s*(?:ME|EPP|SS)\b)'
-        SUFIXO_SOZINHO    = r'(?:ME|EPP|SS)\b'
-
-        empresa = None
-        # Padrão 1: nome + sufixo primário + sufixo secundário opcional
-        # Ex: GAMA FILTROS LTDA - ME  /  ITU LUZ LTDA EPP  /  EMPRESA EIRELI
-        match = re.search(
-            rf'([A-ZÀ-Ú][A-ZÀ-Úa-zà-ú0-9\s\-&./]+?{SUFIXO_PRIMARIO}{SUFIXO_SECUNDARIO}?)',
-            texto[:600], re.IGNORECASE
-        )
-        if not match:
-            # Padrão 2: nome + sufixo sozinho (ME, EPP, SS sem LTDA antes)
-            # Ex: EMPRESA - ME  /  EMPRESA ME
-            match = re.search(
-                rf'([A-ZÀ-Ú][A-ZÀ-Úa-zà-ú0-9\s&./]+?\s*[-–]?\s*{SUFIXO_SOZINHO})',
-                texto[:600], re.IGNORECASE
-            )
-        if match:
-            empresa = match.group(1).strip()
-
-        if data:
-            print(f"  ✅ Data: {data}")
-        else:
-            print("  ⚠️ Data não encontrada")
-
-        if numero:
-            print(f"  ✅ Número NF: {numero}")
-        else:
-            print("  ⚠️ Número NF não encontrado")
-
-        if empresa:
-            print(f"  ✅ Empresa: {empresa}")
-        else:
-            print("  ⚠️ Empresa não encontrada")
-
-        return {'data': data, 'numero': numero, 'empresa': empresa}
-
-    except Exception as e:
-        print(f"❌ Erro ao extrair dados da NF: {e}")
-        return {'data': None, 'numero': None, 'empresa': None}
-
-
 def extrair_dados_nota_fiscal(pdf_path):
     """
     Extrai dados específicos de uma Nota Fiscal.
     - Número: busca após "NF-e" e "Nº", remove pontos e zeros à esquerda
     Retorna dicionário com 'data' e 'numero'.
+    
+    NOTA: O número da NF agora é extraído do nome do arquivo no sei_automation.py,
+    esta função serve como fallback.
     """
     try:
         print("  🔍 Extraindo dados da Nota Fiscal...")
@@ -351,9 +344,9 @@ def extrair_dados_nota_fiscal(pdf_path):
             print("  ⚠️ Data não encontrada")
 
         if numero:
-            print(f"  ✅ Número NF: {numero}")
+            print(f"  ✅ Número NF (OCR): {numero}")
         else:
-            print("  ⚠️ Número NF não encontrado")
+            print("  ⚠️ Número NF não encontrado via OCR")
 
         return {'data': data, 'numero': numero}
 
@@ -447,15 +440,34 @@ def extrair_dados_consulta(pdf_path):
         else:
             data = ocr_utils.extrair_data(texto)
 
-        # CNPJ: logo após "CNPJ:" — remove tudo que não for dígito, garante 14 dígitos
+        # CNPJ: procura "CNPJ" seguido de ":" e captura tudo até ter 14 dígitos
         cnpj = None
-        match = re.search(r'CNPJ\s*[:\s]+([0-9.\-/]+)', texto, re.IGNORECASE)
-        if match:
-            apenas_digitos = re.sub(r'\D', '', match.group(1))
-            if len(apenas_digitos) == 14:
-                cnpj = apenas_digitos
-            else:
-                print(f"  ⚠️ CNPJ encontrado mas com {len(apenas_digitos)} dígitos: '{apenas_digitos}'")
+        
+        # Tenta diferentes padrões
+        padroes_cnpj = [
+            r'CNPJ\s*[:\s]+([0-9.\-/\s]{14,25})',  # CNPJ: XX.XXX.XXX/XXXX-XX
+            r'CNPJ\s*[:\s]*(\d{2}[.\s]?\d{3}[.\s]?\d{3}[/\s]?\d{4}[-\s]?\d{2})',  # Formato com pontos
+            r'CNPJ[:\s]+(\d{14})',  # 14 dígitos direto
+        ]
+        
+        for padrao in padroes_cnpj:
+            match = re.search(padrao, texto, re.IGNORECASE)
+            if match:
+                # Remove tudo que não for dígito
+                apenas_digitos = re.sub(r'\D', '', match.group(1))
+                # Pega apenas os primeiros 14 dígitos
+                if len(apenas_digitos) >= 14:
+                    cnpj = apenas_digitos[:14]
+                    break
+        
+        # Fallback: procura qualquer sequência de 14 dígitos após "CNPJ"
+        if not cnpj:
+            pos_cnpj = texto.upper().find('CNPJ')
+            if pos_cnpj != -1:
+                trecho = texto[pos_cnpj:pos_cnpj + 50]
+                apenas_digitos = re.sub(r'\D', '', trecho)
+                if len(apenas_digitos) >= 14:
+                    cnpj = apenas_digitos[:14]
 
         if data:
             print(f"  ✅ Data: {data}")
@@ -549,6 +561,7 @@ def extrair_data_extrato(pdf_path):
 if __name__ == "__main__":
     print("="*70)
     print("Testando funções de PDF com PyMuPDF")
+    print(f"Fator de resolução: {RESOLUTION_FACTOR} ({int((1-RESOLUTION_FACTOR)*100)}% menor)")
     print("="*70)
     
     if not os.path.exists(config.DOCUMENTOS_DIR):
