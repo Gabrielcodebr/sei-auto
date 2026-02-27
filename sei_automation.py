@@ -926,8 +926,8 @@ class SEIAutomation:
         if not imagem:
             raise Exception(
                 "Erro ao renderizar .docx da declaração.\n"
-                "Instale o LibreOffice: https://www.libreoffice.org/download/\n"
-                "Ou verifique se está instalado em C:\\Program Files\\LibreOffice\\"
+                "O Microsoft Word precisa estar instalado (a conversão usa win32com).\n"
+                "Verifique se o Word está instalado e acessível na máquina."
             )
 
         # Nome na árvore = empresa do ciclo atual
