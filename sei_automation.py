@@ -11,6 +11,7 @@ VERSÃO 2.0 - Correções:
 import os
 import re
 import time
+from datetime import date
 import pyautogui
 import pyperclip
 from pathlib import Path
@@ -90,6 +91,14 @@ class SEIAutomation:
         if segundos is None:
             segundos = config.WAIT_FOR_ELEMENT
         time.sleep(segundos)
+
+    def _data_fallback(self, data):
+        """Retorna a data fornecida ou a data de hoje como último recurso (formato DD/MM/YYYY)"""
+        if data:
+            return data
+        hoje = date.today().strftime('%d/%m/%Y')
+        print(f"  ⚠️ Data não encontrada — usando data de hoje como fallback: {hoje}")
+        return hoje
 
     def carregar_documentos(self):
         """Carrega e ordena lista de documentos da pasta (ordem numérica pelo prefixo)"""
@@ -282,7 +291,9 @@ class SEIAutomation:
         self.aguardar(0.1)
         pyperclip.copy(descricao)
         pyautogui.hotkey('ctrl', 'v')
-        self.aguardar(0.5)
+        self.aguardar(0.2)
+        pyautogui.press('escape')  # Fecha autocomplete do Firefox
+        self.aguardar(0.3)
 
         print(f"  ✏️ Preenchendo 'Nome na Árvore': {nome_arvore}")
         pyautogui.click(self.COORD_CAMPO_NOME_ARVORE_INTERNO)
@@ -292,7 +303,9 @@ class SEIAutomation:
         self.aguardar(0.1)
         pyperclip.copy(nome_arvore)
         pyautogui.hotkey('ctrl', 'v')
-        self.aguardar(0.5)
+        self.aguardar(0.2)
+        pyautogui.press('escape')  # Fecha autocomplete do Firefox
+        self.aguardar(0.3)
 
         print("  ✅ Campos preenchidos!")
 
@@ -319,7 +332,9 @@ class SEIAutomation:
         if texto:
             pyperclip.copy(str(texto))
             pyautogui.hotkey('ctrl', 'v')
-            self.aguardar(0.3)
+            self.aguardar(0.2)
+            pyautogui.press('escape')  # Fecha autocomplete do Firefox
+            self.aguardar(0.1)
 
     def selecionar_nivel_acesso_publico(self, n_scrolls=6):
         """Formulários INTERNOS — rola e clica em Público"""
@@ -648,7 +663,7 @@ class SEIAutomation:
             print("⚠️ ATENÇÃO: Dados não extraídos completamente!")
 
         # Guarda no contexto para o despacho (doc 04)
-        self.dados_contexto['ne_data']   = dados['data']   or '[DATA]'
+        self.dados_contexto['ne_data']   = self._data_fallback(dados['data'])
         self.dados_contexto['ne_numero'] = dados['numero'] or '[NÚMERO]'
 
         self.clicar_botao_incluir_documento()
@@ -656,7 +671,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Nota de empenho")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,         dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,         self.dados_contexto['ne_data'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,       dados['numero'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE,  dados['numero'])
 
@@ -752,7 +767,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Ordem bancaria")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
@@ -835,7 +850,7 @@ class SEIAutomation:
         empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
 
         # Guarda no contexto — comprovante reutiliza
-        self.dados_contexto['nf_data']    = dados['data']   or '[DATA]'
+        self.dados_contexto['nf_data']    = self._data_fallback(dados['data'])
         self.dados_contexto['nf_numero']  = dados['numero'] or '[NÚMERO]'
         self.dados_contexto['nf_empresa'] = empresa
 
@@ -844,7 +859,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Nota Fiscal")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self.dados_contexto['nf_data'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
         # Nome na árvore: nome da empresa
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, self.dados_contexto['nf_empresa'])
@@ -962,7 +977,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Consulta")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'] or '[CNPJ]')
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
 
@@ -993,15 +1008,24 @@ class SEIAutomation:
 
         dados   = pdf_utils.extrair_dados_cnpj(pdf_path)
         empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
-        # Reutiliza o CNPJ já encontrado na consulta (mais confiável)
-        cnpj    = self.dados_contexto.get('consulta_cnpj') or dados['numero'] or '[CNPJ]'
+
+        # CNPJ: usa sempre o do documento de Consulta Optante (mais confiável)
+        cnpj = self.dados_contexto.get('consulta_cnpj')
+        if cnpj:
+            print(f"  ✅ CNPJ reutilizado da Consulta Optante: {cnpj}")
+        else:
+            cnpj = dados['numero']
+            print(f"  ⚠️ CNPJ da consulta não disponível — extraindo do PDF: {cnpj}")
+        if not cnpj:
+            cnpj = '[CNPJ]'
+            print("  ❌ CNPJ não encontrado em nenhuma fonte!")
 
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc("Externo")
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Cadastro Nacional De Pessoa Jurídica")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      cnpj)
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
 
@@ -1038,7 +1062,7 @@ class SEIAutomation:
 
         # CORRIGIDO: Usa "Guia de recolhimento" (não "Comprovante")
         self.selecionar_dropdown_tipo_externo("Guia de recolhimento")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
@@ -1074,7 +1098,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Comprovante")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        dados['data'])
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
         self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
@@ -1130,7 +1154,7 @@ class SEIAutomation:
         self.aguardar(1.5)
 
         self.selecionar_dropdown_tipo_externo("Extrato")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        data)
+        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(data))
         self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, "Bancário")
 
         pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
@@ -1263,45 +1287,91 @@ class SEIAutomation:
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
 
         try:
+            # ── Encontra posição do arquivo inicial (antes de processar qualquer seção) ──
+            docs_iniciais = self.documentos[:inicio_ciclos]
+            arquivo_inicial_idx_iniciais = None
+            arquivo_inicial_idx = None
+            tipo_arquivo_inicial = None
+            arquivo_inicial_idx_finais = None
+
+            if self.arquivo_inicial:
+                # 1) Procura nos documentos iniciais (fixos)
+                for i, doc in enumerate(docs_iniciais):
+                    nome = os.path.basename(doc)
+                    match = re.match(r'^(\d+)', nome)
+                    if match and int(match.group(1)) == self.arquivo_inicial:
+                        arquivo_inicial_idx_iniciais = i
+                        print(f"\n📄 Arquivo {self.arquivo_inicial} encontrado nos documentos iniciais: {nome}")
+                        break
+
+                # 2) Procura nos ciclos
+                if arquivo_inicial_idx_iniciais is None:
+                    for i, doc in enumerate(docs_ciclo):
+                        nome = os.path.basename(doc)
+                        match = re.match(r'^(\d+)', nome)
+                        if match and int(match.group(1)) == self.arquivo_inicial:
+                            arquivo_inicial_idx = i
+                            tipo_arquivo_inicial = self.identificar_tipo_documento_ciclo(doc)
+                            print(f"\n📄 Arquivo {self.arquivo_inicial} encontrado nos ciclos: {nome}")
+                            print(f"   Tipo identificado: {tipo_arquivo_inicial}")
+                            break
+
+                # 3) Procura nos documentos finais
+                if arquivo_inicial_idx_iniciais is None and arquivo_inicial_idx is None:
+                    for i, doc in enumerate(docs_finais):
+                        nome = os.path.basename(doc)
+                        match = re.match(r'^(\d+)', nome)
+                        if match and int(match.group(1)) == self.arquivo_inicial:
+                            arquivo_inicial_idx_finais = i
+                            print(f"\n📄 Arquivo {self.arquivo_inicial} encontrado nos documentos finais: {nome}")
+                            break
+
+                if arquivo_inicial_idx_iniciais is None and arquivo_inicial_idx is None and arquivo_inicial_idx_finais is None:
+                    print(f"\n⚠️ Arquivo {self.arquivo_inicial} não encontrado em nenhuma seção!")
+                    print("   Começando do primeiro ciclo...")
+
             # ── Documentos fixos (pula se solicitado) ───────────────────
-            if not self.pular_docs_fixos and self.ciclo_inicial == 1 and not self.arquivo_inicial:
-                
+            if not self.pular_docs_fixos and self.ciclo_inicial == 1 and (not self.arquivo_inicial or arquivo_inicial_idx_iniciais is not None):
+                inicio_iniciais = arquivo_inicial_idx_iniciais if arquivo_inicial_idx_iniciais is not None else 0
+
                 if self.tipo_processo == 'UFIEC':
-                    # UFIEC: Capa → Memorando → Solicitação → NE → Despacho → OB
+                    # UFIEC: Capa(0) → Memorando(1) → Solicitação(2) → NE(3) → Despacho → OB(4)
                     print("\n📋 Processo UFIEC - Com Memorando/Justificativa")
-                    
-                    if len(self.documentos) >= 1:
+
+                    if inicio_iniciais <= 0 and len(self.documentos) >= 1:
                         self.processar_documento_01_capa(self.documentos[0])
 
-                    if len(self.documentos) >= 2:
+                    if inicio_iniciais <= 1 and len(self.documentos) >= 2:
                         self.processar_documento_02b_memorando_justificativa(self.documentos[1])
 
-                    if len(self.documentos) >= 3:
+                    if inicio_iniciais <= 2 and len(self.documentos) >= 3:
                         self.processar_documento_02_solicitacao(self.documentos[2])
 
-                    if len(self.documentos) >= 4:
+                    if inicio_iniciais <= 3 and len(self.documentos) >= 4:
                         self.processar_documento_03_nota_empenho(self.documentos[3])
 
-                    self.processar_documento_04_despacho_ne()
+                    if inicio_iniciais <= 3:
+                        self.processar_documento_04_despacho_ne()
 
-                    if len(self.documentos) >= 5:
+                    if inicio_iniciais <= 4 and len(self.documentos) >= 5:
                         self.processar_documento_05_ordem_bancaria(self.documentos[4])
                 else:
-                    # DMPP (padrão): Capa → Solicitação → NE → Despacho → OB
+                    # DMPP (padrão): Capa(0) → Solicitação(1) → NE(2) → Despacho → OB(3)
                     print("\n📋 Processo DMPP - Padrão")
-                    
-                    if len(self.documentos) >= 1:
+
+                    if inicio_iniciais <= 0 and len(self.documentos) >= 1:
                         self.processar_documento_01_capa(self.documentos[0])
 
-                    if len(self.documentos) >= 2:
+                    if inicio_iniciais <= 1 and len(self.documentos) >= 2:
                         self.processar_documento_02_solicitacao(self.documentos[1])
 
-                    if len(self.documentos) >= 3:
+                    if inicio_iniciais <= 2 and len(self.documentos) >= 3:
                         self.processar_documento_03_nota_empenho(self.documentos[2])
 
-                    self.processar_documento_04_despacho_ne()
+                    if inicio_iniciais <= 2:
+                        self.processar_documento_04_despacho_ne()
 
-                    if len(self.documentos) >= 4:
+                    if inicio_iniciais <= 3 and len(self.documentos) >= 4:
                         self.processar_documento_05_ordem_bancaria(self.documentos[3])
             else:
                 print("\n⏭️  Pulando documentos fixos...")
@@ -1311,26 +1381,10 @@ class SEIAutomation:
             #             → Consulta → CNPJ → Guia ISS (opcional) → Comprovante ISS (opcional)
             idx = 0
             num_nf = 1
-            
-            # Se arquivo_inicial foi especificado, encontra o índice correto
-            arquivo_inicial_idx = None
-            tipo_arquivo_inicial = None
-            
-            if self.arquivo_inicial:
-                # Encontra o arquivo com o número especificado
-                for i, doc in enumerate(docs_ciclo):
-                    nome = os.path.basename(doc)
-                    match = re.match(r'^(\d+)', nome)
-                    if match and int(match.group(1)) == self.arquivo_inicial:
-                        arquivo_inicial_idx = i
-                        tipo_arquivo_inicial = self.identificar_tipo_documento_ciclo(doc)
-                        print(f"\n📄 Arquivo {self.arquivo_inicial} encontrado: {nome}")
-                        print(f"   Tipo identificado: {tipo_arquivo_inicial}")
-                        break
-                
-                if arquivo_inicial_idx is None:
-                    print(f"\n⚠️ Arquivo {self.arquivo_inicial} não encontrado nos ciclos!")
-                    print("   Começando do primeiro ciclo...")
+
+            # Se o arquivo inicial está nos finais, pula todos os ciclos
+            if arquivo_inicial_idx_finais is not None:
+                idx = len(docs_ciclo)
             
             # Pula ciclos se necessário (opção 3 do menu)
             if self.ciclo_inicial > 1 and not self.arquivo_inicial:
@@ -1456,16 +1510,17 @@ class SEIAutomation:
                 num_nf += 1
 
             # ── Documentos finais (após todos os ciclos) ────────────────
-            if len(docs_finais) >= 1:
+            inicio_finais = arquivo_inicial_idx_finais if arquivo_inicial_idx_finais is not None else 0
+            if inicio_finais <= 0 and len(docs_finais) >= 1:
                 self.processar_documento_14_balancete(docs_finais[0])
 
-            if len(docs_finais) >= 2:
+            if inicio_finais <= 1 and len(docs_finais) >= 2:
                 self.processar_documento_15_extrato_bancario(docs_finais[1])
 
-            if len(docs_finais) >= 3:
+            if inicio_finais <= 2 and len(docs_finais) >= 3:
                 self.processar_documento_16_conciliacao_contabil(docs_finais[2])
 
-            if len(docs_finais) >= 4:
+            if inicio_finais <= 3 and len(docs_finais) >= 4:
                 self.processar_documento_17_declaracao_encerramento(docs_finais[3])
 
             print("\n" + "="*70)
