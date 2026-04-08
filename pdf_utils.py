@@ -163,14 +163,6 @@ def _empilhar_imagens_verticalmente(imagens):
     return resultado
 
 
-# Assinaturas conhecidas (nome + CPF) para corte da Planilha de Pesquisa
-# de Preço. Cada item é uma tupla (nome, cpf).
-ASSINATURAS_PLANILHA_PRECO = [
-    ("RODRIGO BARBIERI", "230599118-51"),  # DMPP
-    ("ROSANA METZNER",   "066313968-67"),  # UFIEC
-]
-
-
 def processar_planilha_pesquisa_preco(pdf_path):
     """
     Processa a Planilha de Pesquisa de Preço (Quadro Comparativo).
@@ -178,7 +170,7 @@ def processar_planilha_pesquisa_preco(pdf_path):
     Regras:
     - Renderiza todas as páginas do PDF.
     - Em cada página, procura por uma das assinaturas conhecidas
-      (nome + CPF) — ver ASSINATURAS_PLANILHA_PRECO.
+      (nome + CPF) — ver config.ASSINATURAS_PLANILHA_PRECO.
     - Quando encontra a assinatura em uma página, mantém tudo até o
       final dessa linha e descarta o restante (e todas as páginas
       seguintes — útil quando o sistema gera páginas vazias extras).
@@ -215,7 +207,7 @@ def processar_planilha_pesquisa_preco(pdf_path):
             coords_cpf  = None
             assinante   = None
 
-            for nome, cpf in ASSINATURAS_PLANILHA_PRECO:
+            for nome, cpf in config.ASSINATURAS_PLANILHA_PRECO:
                 c_cpf  = ocr_utils.localizar_texto_na_imagem(imagem, cpf)
                 c_nome = ocr_utils.localizar_texto_na_imagem(imagem, nome)
                 if c_cpf or c_nome:

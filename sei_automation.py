@@ -26,43 +26,10 @@ pyautogui.FAILSAFE = True  # Mover mouse para canto superior esquerdo cancela
 
 
 class SEIAutomation:
-    """Classe principal para automação do SEI"""
+    """Classe principal para automação do SEI.
 
-    # =========================================================
-    # COORDENADAS - TELA PRINCIPAL
-    # =========================================================
-    COORD_BTN_INCLUIR_DOC   = (354, 180)
-    COORD_BARRA_PESQUISA    = (761, 380)
-    COORD_BTN_SALVAR_FORM   = (1466, 757)
-    COORD_RADIO_PUBLICO     = (1120, 668)
-    COORD_AREA_EDICAO       = (817, 589)   # Popup maximizado
-
-    # =========================================================
-    # COORDENADAS - ÁRVORE DO PROCESSO
-    # =========================================================
-    COORD_ICONE_NE_ARVORE_DMPP  = (49, 246)   # Ícone da Nota de Empenho na árvore (DMPP - 3º arquivo)
-    COORD_ICONE_NE_ARVORE_UFIEC = (48, 304)   # Ícone da Nota de Empenho na árvore (UFIEC - 5º arquivo)
-
-    # =========================================================
-    # COORDENADAS - FORMULÁRIO DOCUMENTO INTERNO
-    # =========================================================
-    COORD_CAMPO_DESCRICAO_INTERNO   = (417, 513)
-    COORD_CAMPO_NOME_ARVORE_INTERNO = (425, 568)
-
-    # =========================================================
-    # COORDENADAS - FORMULÁRIO DOCUMENTO EXTERNO
-    # =========================================================
-    COORD_DROPDOWN_TIPO_EXTERNO      = (451, 351)
-    COORD_CAMPO_DATA                 = (1038, 357)
-    COORD_CAMPO_NUMERO               = (406, 413)
-    COORD_CAMPO_NOME_ARVORE          = (616, 413)
-    COORD_RADIO_NATO_DIGITAL         = (411, 482)
-    COORD_RADIO_DIGITALIZADO         = (410, 503)
-    COORD_DROPDOWN_TIPO_CONFERENCIA  = (1056, 478)
-    COORD_BTN_ANEXAR_ARQUIVO         = (406, 608)
-    COORD_RADIO_PUBLICO_EXTERNO      = (1114, 541)
-
-    # =========================================================
+    Todas as coordenadas, tempos e textos editáveis vivem em config.py.
+    """
 
     def __init__(self, pasta_documentos=None, pular_primeiros=0, ciclo_inicial=1, pular_docs_fixos=False, arquivo_inicial=None, tipo_processo='DMPP'):
         """
@@ -257,14 +224,14 @@ class SEIAutomation:
 
     def clicar_botao_incluir_documento(self):
         print("\n🖱️ Clicando em 'Incluir Documento'...")
-        pyautogui.click(self.COORD_BTN_INCLUIR_DOC)
+        pyautogui.click(config.COORD_BTN_INCLUIR_DOC)
         self.aguardar(1.5)
         print("✅ Lista de documentos aberta")
 
     def pesquisar_e_selecionar_tipo_doc(self, texto_busca):
         """Pesquisa e seleciona tipo de documento na barra de busca"""
         print(f"🔍 Buscando: '{texto_busca}'")
-        pyautogui.click(self.COORD_BARRA_PESQUISA)
+        pyautogui.click(config.COORD_BARRA_PESQUISA)
         self.aguardar(0.5)
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.write(texto_busca, interval=0.05)
@@ -281,10 +248,10 @@ class SEIAutomation:
         de documento interno usando coordenadas fixas.
         """
         print("  ⏳ Aguardando formulário carregar...")
-        self.aguardar(3)
+        self.aguardar(config.TEMPOS['aguardar_form_carregar'])
 
         print(f"  ✏️ Preenchendo 'Descrição': {descricao}")
-        pyautogui.click(self.COORD_CAMPO_DESCRICAO_INTERNO)
+        pyautogui.click(config.COORD_CAMPO_DESCRICAO_INTERNO)
         self.aguardar(0.4)
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.press('delete')
@@ -296,7 +263,7 @@ class SEIAutomation:
         self.aguardar(0.3)
 
         print(f"  ✏️ Preenchendo 'Nome na Árvore': {nome_arvore}")
-        pyautogui.click(self.COORD_CAMPO_NOME_ARVORE_INTERNO)
+        pyautogui.click(config.COORD_CAMPO_NOME_ARVORE_INTERNO)
         self.aguardar(0.4)
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.press('delete')
@@ -312,7 +279,7 @@ class SEIAutomation:
     def selecionar_dropdown_tipo_externo(self, tipo_documento):
         """Seleciona tipo no dropdown de documentos externos"""
         print(f"📋 Selecionando tipo externo: '{tipo_documento}'")
-        pyautogui.click(self.COORD_DROPDOWN_TIPO_EXTERNO)
+        pyautogui.click(config.COORD_DROPDOWN_TIPO_EXTERNO)
         self.aguardar(0.8)
         palavras = tipo_documento.split()[:3]
         pyautogui.write(' '.join(palavras), interval=0.08)
@@ -342,7 +309,7 @@ class SEIAutomation:
         for _ in range(n_scrolls):
             pyautogui.scroll(-400)
             self.aguardar(0.2)
-        pyautogui.click(self.COORD_RADIO_PUBLICO)
+        pyautogui.click(config.COORD_RADIO_PUBLICO)
         self.aguardar(0.3)
         print("✅ Público selecionado")
 
@@ -352,7 +319,7 @@ class SEIAutomation:
         for _ in range(6):
             pyautogui.scroll(-400)
             self.aguardar(0.2)
-        pyautogui.click(self.COORD_RADIO_PUBLICO_EXTERNO)
+        pyautogui.click(config.COORD_RADIO_PUBLICO_EXTERNO)
         self.aguardar(0.3)
         print("✅ Público selecionado")
 
@@ -362,18 +329,15 @@ class SEIAutomation:
         Estratégia: tira screenshot da região do popup e busca texto chave.
         Como fallback, pressiona Enter pois o botão OK já fica focado por padrão.
         """
-        # Região central da tela onde popups do SEI aparecem (1600x900)
-        REGIAO_POPUP = (400, 300, 800, 300)  # x, y, largura, altura
-
         for i in range(tentativas):
             self.aguardar(0.8)
             try:
-                screenshot = pyautogui.screenshot(region=REGIAO_POPUP)
+                screenshot = pyautogui.screenshot(region=config.REGIAO_POPUP_SIMILAR)
                 texto = ocr_utils.extrair_texto_imagem(screenshot, preprocessar=False)
 
                 if 'deseja continuar' in texto.lower() or 'já existe' in texto.lower():
                     print("  ⚠️ Popup de documento similar detectado! Clicando OK...")
-                    pyautogui.click(861, 526)
+                    pyautogui.click(*config.COORD_POPUP_OK_SIMILAR)
                     self.aguardar(1)
                     print("  ✅ Popup dispensado")
                     return True
@@ -389,8 +353,8 @@ class SEIAutomation:
     def clicar_salvar(self):
         """Clica em Salvar e maximiza o popup do editor"""
         print("💾 Clicando em Salvar...")
-        pyautogui.click(self.COORD_BTN_SALVAR_FORM)
-        self.aguardar(2.5)
+        pyautogui.click(config.COORD_BTN_SALVAR_FORM)
+        self.aguardar(config.TEMPOS['pos_salvar_form'])
         print("  ⏳ Aguardando editor abrir...")
         self.aguardar(1)
         print("  🖼️ Maximizando popup...")
@@ -419,7 +383,7 @@ class SEIAutomation:
             win32clipboard.CloseClipboard()
             self.aguardar(0.5)
 
-            pyautogui.click(self.COORD_AREA_EDICAO)
+            pyautogui.click(config.COORD_AREA_EDICAO)
             self.aguardar(0.3)
             pyautogui.hotkey('ctrl', 'a')
             self.aguardar(0.2)
@@ -436,7 +400,7 @@ class SEIAutomation:
         print("📝 Colando texto no editor...")
         pyperclip.copy(texto)
         self.aguardar(0.3)
-        pyautogui.click(self.COORD_AREA_EDICAO)
+        pyautogui.click(config.COORD_AREA_EDICAO)
         self.aguardar(0.3)
         pyautogui.hotkey('ctrl', 'a')
         self.aguardar(0.2)
@@ -456,7 +420,7 @@ class SEIAutomation:
         print("📝 Colando despacho com link em três partes...")
 
         # Clica UMA vez para focar o editor e não toca mais no mouse
-        pyautogui.click(self.COORD_AREA_EDICAO)
+        pyautogui.click(config.COORD_AREA_EDICAO)
         self.aguardar(0.5)
 
         # Limpa o conteúdo padrão do editor
@@ -480,7 +444,7 @@ class SEIAutomation:
         self.aguardar(0.8)
 
         # Clica numa área vazia do editor para refocar de forma mais natural
-        pyautogui.click(934, 496)
+        pyautogui.click(*config.COORD_REFOCO_EDITOR)
         self.aguardar(0.5)
 
         # Espaço + dois Enters para "confirmar" o link no editor do SEI
@@ -503,11 +467,11 @@ class SEIAutomation:
     def clicar_salvar_editor(self):
         """Salva (Ctrl+Alt+S) e fecha (Ctrl+W) o editor popup"""
         print("💾 Salvando no editor...")
-        pyautogui.click(self.COORD_AREA_EDICAO)
+        pyautogui.click(config.COORD_AREA_EDICAO)
         self.aguardar(0.3)
         pyautogui.hotkey('ctrl', 'alt', 's')
         print("  ⏳ Aguardando salvar...")
-        self.aguardar(3)
+        self.aguardar(config.TEMPOS['pos_salvar_editor'])
         print("  🚪 Fechando popup...")
         pyautogui.hotkey('ctrl', 'w')
         self.aguardar(1.5)
@@ -516,7 +480,7 @@ class SEIAutomation:
     def anexar_arquivo_externo(self, arquivo_path):
         """Abre janela de upload do Windows e anexa o arquivo"""
         print(f"📎 Anexando: {os.path.basename(arquivo_path)}")
-        pyautogui.click(self.COORD_BTN_ANEXAR_ARQUIVO)
+        pyautogui.click(config.COORD_BTN_ANEXAR_ARQUIVO)
         self.aguardar(2)
         print("  ⏳ Aguardando janela de upload...")
         self.aguardar(1)
@@ -526,7 +490,7 @@ class SEIAutomation:
         self.aguardar(0.5)
         pyautogui.press('enter')
         print("  ⏳ Processando upload...")
-        self.aguardar(5)
+        self.aguardar(config.TEMPOS['pos_anexo_upload'])
         print("✅ Arquivo anexado")
 
     def ler_texto_docx(self, docx_path):
@@ -597,9 +561,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao processar capa")
 
+        doc_cfg = config.DOCUMENTOS['capa']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Informacao")
-        self.preencher_formulario_interno("Capa padrão imprensa oficial", "Capa")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -617,9 +582,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF")
 
+        doc_cfg = config.DOCUMENTOS['solicitacao']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Solicitacao")
-        self.preencher_formulario_interno("Solicitação de adiantamento", "adiantamento")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -637,9 +603,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF")
 
+        doc_cfg = config.DOCUMENTOS['memorando_justificativa']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Memorando")
-        self.preencher_formulario_interno("Memorando/Justificativa", "Justificativa")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -666,16 +633,17 @@ class SEIAutomation:
         self.dados_contexto['ne_data']   = self._data_fallback(dados['data'])
         self.dados_contexto['ne_numero'] = dados['numero'] or '[NÚMERO]'
 
+        doc_cfg = config.DOCUMENTOS['nota_empenho']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Nota de empenho")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,         self.dados_contexto['ne_data'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,       dados['numero'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE,  dados['numero'])
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,         self.dados_contexto['ne_data'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,       dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE,  dados['numero'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         # Público ANTES de anexar (evita bagunça de layout)
@@ -697,7 +665,7 @@ class SEIAutomation:
 
         # Aguarda a tela principal recarregar antes de capturar o link
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_04_despacho_ne(self):
         """04. DESPACHO DE APROVAÇÃO DA NOTA DE EMPENHO"""
@@ -707,9 +675,9 @@ class SEIAutomation:
 
         # Captura o link da NE — usa coordenada diferente para UFIEC
         if self.tipo_processo == 'UFIEC':
-            coord_ne = self.COORD_ICONE_NE_ARVORE_UFIEC
+            coord_ne = config.COORD_ICONE_NE_ARVORE_UFIEC
         else:
-            coord_ne = self.COORD_ICONE_NE_ARVORE_DMPP
+            coord_ne = config.COORD_ICONE_NE_ARVORE_DMPP
         
         link_ne = self.capturar_link_documento_arvore(coord_ne)
 
@@ -735,12 +703,13 @@ class SEIAutomation:
         print(f"📋 Texto depois do link:")
         print(f"  '{texto_depois}'")
 
+        doc_cfg = config.DOCUMENTOS['despacho_aprovacao_ne']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Despacho")
-        self.preencher_formulario_interno("Aprovação de NE", "Aprovação de NE")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['pos_click_salvar_doc04'])
 
         # Cola em três partes: texto → link via Ctrl+V → texto
         self.colar_despacho_com_link(texto_antes, link_ne, texto_depois)
@@ -762,16 +731,17 @@ class SEIAutomation:
             print(f"  Data encontrada:   '{dados.get('data', '')}'")
             print(f"  Número encontrado: '{dados.get('numero', '')}'")
 
+        doc_cfg = config.DOCUMENTOS['ordem_bancaria']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Ordem bancaria")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         # Público ANTES de anexar (evita bagunça de layout)
@@ -792,7 +762,7 @@ class SEIAutomation:
         print("✅ ORDEM BANCÁRIA inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_06_quadro_comparativo(self, pdf_path):
         """06. QUADRO COMPARATIVO DE PREÇOS (Planilha de Pesquisa de Preço)"""
@@ -804,9 +774,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF")
 
+        doc_cfg = config.DOCUMENTOS['quadro_comparativo']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Planilha")
-        self.preencher_formulario_interno("Quadro comparativo", "Quadro comparativo")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -820,7 +791,7 @@ class SEIAutomation:
         Digita as primeiras palavras para filtrar e pressiona Enter.
         """
         print(f"📋 Selecionando tipo de conferência: '{tipo}'")
-        pyautogui.click(self.COORD_DROPDOWN_TIPO_CONFERENCIA)
+        pyautogui.click(config.COORD_DROPDOWN_TIPO_CONFERENCIA)
         self.aguardar(0.8)
         pyautogui.press('down')
         self.aguardar(0.3)
@@ -854,17 +825,18 @@ class SEIAutomation:
         self.dados_contexto['nf_numero']  = dados['numero'] or '[NÚMERO]'
         self.dados_contexto['nf_empresa'] = empresa
 
+        doc_cfg = config.DOCUMENTOS['nota_fiscal']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Nota Fiscal")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self.dados_contexto['nf_data'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self.dados_contexto['nf_data'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
         # Nome na árvore: nome da empresa
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, self.dados_contexto['nf_empresa'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, self.dados_contexto['nf_empresa'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -884,7 +856,7 @@ class SEIAutomation:
         print("✅ NOTA FISCAL inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_08_comprovante_fiscal(self, pdf_path):
         """08. COMPROVANTE DA NOTA FISCAL (digitalizado)"""
@@ -897,17 +869,18 @@ class SEIAutomation:
         numero  = self.dados_contexto.get('nf_numero',  '[NÚMERO]')
         empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
 
+        doc_cfg = config.DOCUMENTOS['comprovante_fiscal']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Comprovante")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        data)
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      numero)
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        data)
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      numero)
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, empresa)
 
         # Digitalizado → habilita dropdown de tipo de conferência
-        pyautogui.click(self.COORD_RADIO_DIGITALIZADO)
+        pyautogui.click(config.COORD_RADIO_DIGITALIZADO)
         self.aguardar(0.5)
 
         self.selecionar_tipo_conferencia("Cópia Autenticada Administrativamente")
@@ -929,7 +902,7 @@ class SEIAutomation:
         print("✅ COMPROVANTE FISCAL inserido!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_09_declaracao_recebimento(self, docx_path):
         """09. DECLARAÇÃO DE RECEBIMENTO (interno - print da primeira página do .docx)"""
@@ -948,12 +921,10 @@ class SEIAutomation:
         # Nome na árvore = empresa do ciclo atual
         empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
 
+        doc_cfg = config.DOCUMENTOS['declaracao_recebimento']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Declaracao")
-        self.preencher_formulario_interno(
-            "Declaração de Recebimento, Conformidade e Destinação",
-            empresa
-        )
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], empresa)
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -972,16 +943,17 @@ class SEIAutomation:
 
         self.dados_contexto['consulta_cnpj'] = dados['numero']  # guarda para o doc 11
 
+        doc_cfg = config.DOCUMENTOS['consulta_optante']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Consulta")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'] or '[CNPJ]')
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'] or '[CNPJ]')
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, empresa)
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -998,7 +970,7 @@ class SEIAutomation:
         print("✅ CONSULTA DE OPTANTE inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_11_cnpj(self, pdf_path):
         """11. CNPJ (documento externo)"""
@@ -1020,16 +992,17 @@ class SEIAutomation:
             cnpj = '[CNPJ]'
             print("  ❌ CNPJ não encontrado em nenhuma fonte!")
 
+        doc_cfg = config.DOCUMENTOS['cnpj']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Cadastro Nacional De Pessoa Jurídica")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      cnpj)
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, empresa)
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      cnpj)
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, empresa)
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -1046,7 +1019,7 @@ class SEIAutomation:
         print("✅ CNPJ inserido!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_12_guia_iss(self, pdf_path):
         """12. GUIA DE RECOLHIMENTO DO ISS (documento externo, opcional)"""
@@ -1056,17 +1029,17 @@ class SEIAutomation:
 
         dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
 
+        doc_cfg = config.DOCUMENTOS['guia_iss']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        # CORRIGIDO: Usa "Guia de recolhimento" (não "Comprovante")
-        self.selecionar_dropdown_tipo_externo("Guia de recolhimento")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -1083,7 +1056,7 @@ class SEIAutomation:
         print("✅ GUIA DE RECOLHIMENTO DO ISS inserida!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_13_comprovante_iss(self, pdf_path):
         """13. COMPROVANTE DE ISS (documento externo, opcional)"""
@@ -1093,16 +1066,17 @@ class SEIAutomation:
 
         dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
 
+        doc_cfg = config.DOCUMENTOS['comprovante_iss']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Comprovante")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NUMERO,      dados['numero'])
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, dados['numero'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -1119,7 +1093,7 @@ class SEIAutomation:
         print("✅ COMPROVANTE DE ISS inserido!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_14_balancete(self, pdf_path):
         """14. BALANCETE DE DESPESAS COM ADIANTAMENTO (interno)"""
@@ -1131,9 +1105,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF do balancete")
 
+        doc_cfg = config.DOCUMENTOS['balancete']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Balancete")
-        self.preencher_formulario_interno("", "")  # Deixar vazio
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -1149,15 +1124,16 @@ class SEIAutomation:
 
         data = pdf_utils.extrair_data_extrato(pdf_path)
 
+        doc_cfg = config.DOCUMENTOS['extrato_bancario']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Externo")
-        self.aguardar(1.5)
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
-        self.selecionar_dropdown_tipo_externo("Extrato")
-        self.preencher_campo_clicando(self.COORD_CAMPO_DATA,        self._data_fallback(data))
-        self.preencher_campo_clicando(self.COORD_CAMPO_NOME_ARVORE, "Bancário")
+        self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(data))
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, doc_cfg['nome_arvore_fixo'])
 
-        pyautogui.click(self.COORD_RADIO_NATO_DIGITAL)
+        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
 
         self.selecionar_nivel_acesso_publico_externo()
@@ -1174,7 +1150,7 @@ class SEIAutomation:
         print("✅ EXTRATO BANCÁRIO inserido!\n")
 
         print("  ⏳ Aguardando tela principal recarregar...")
-        self.aguardar(2)
+        self.aguardar(config.TEMPOS['recarregar_tela'])
 
     def processar_documento_16_conciliacao_contabil(self, pdf_path):
         """16. RELATÓRIO DE CONCILIAÇÃO CONTÁBIL (interno)"""
@@ -1186,9 +1162,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF da conciliação")
 
+        doc_cfg = config.DOCUMENTOS['conciliacao_contabil']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Conciliacao")
-        self.preencher_formulario_interno("Conciliação bancária", "Conciliação bancária")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
@@ -1206,9 +1183,10 @@ class SEIAutomation:
         if not imagem:
             raise Exception("Erro ao renderizar PDF da declaração de encerramento")
 
+        doc_cfg = config.DOCUMENTOS['declaracao_encerramento']
         self.clicar_botao_incluir_documento()
-        self.pesquisar_e_selecionar_tipo_doc("Declaracao")
-        self.preencher_formulario_interno("Declaração de encerramento", "Encerramento")
+        self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
+        self.preencher_formulario_interno(doc_cfg['descricao'], doc_cfg['nome_arvore'])
         self.selecionar_nivel_acesso_publico()
         self.clicar_salvar()
         self.colar_imagem_editor(imagem)
