@@ -800,7 +800,7 @@ class SEIAutomation:
         print("📄 DOCUMENTO 06: QUADRO COMPARATIVO DE PREÇOS")
         print("="*60)
 
-        imagem = pdf_utils.processar_print_padrao(pdf_path)
+        imagem = pdf_utils.processar_planilha_pesquisa_preco(pdf_path)
         if not imagem:
             raise Exception("Erro ao renderizar PDF")
 

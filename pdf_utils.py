@@ -110,6 +110,169 @@ def processar_print_padrao(pdf_path):
     return renderizar_primeira_pagina_pdf(pdf_path)
 
 
+def renderizar_pagina_pdf(pdf_path, pagina_idx, dpi=None):
+    """
+    Renderiza uma página específica de um PDF como imagem PIL.
+    """
+    try:
+        if dpi is None:
+            dpi = int(config.PDF_DPI * RESOLUTION_FACTOR)
+
+        doc = fitz.open(pdf_path)
+        if pagina_idx >= len(doc):
+            doc.close()
+            return None
+
+        page = doc[pagina_idx]
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat)
+        img_data = pix.tobytes("png")
+        imagem = Image.open(io.BytesIO(img_data))
+        doc.close()
+        return imagem
+
+    except Exception as e:
+        print(f"❌ Erro ao renderizar página {pagina_idx} do PDF: {e}")
+        return None
+
+
+def _empilhar_imagens_verticalmente(imagens):
+    """
+    Concatena várias imagens PIL verticalmente em uma única imagem.
+    A largura final é a maior largura entre as imagens; imagens menores
+    são centralizadas horizontalmente sobre fundo branco.
+    """
+    if not imagens:
+        return None
+    if len(imagens) == 1:
+        return imagens[0]
+
+    largura_final = max(img.width for img in imagens)
+    altura_final  = sum(img.height for img in imagens)
+
+    resultado = Image.new('RGB', (largura_final, altura_final), 'white')
+    y_offset = 0
+    for img in imagens:
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        x_offset = (largura_final - img.width) // 2
+        resultado.paste(img, (x_offset, y_offset))
+        y_offset += img.height
+
+    return resultado
+
+
+# Assinaturas conhecidas (nome + CPF) para corte da Planilha de Pesquisa
+# de Preço. Cada item é uma tupla (nome, cpf).
+ASSINATURAS_PLANILHA_PRECO = [
+    ("RODRIGO BARBIERI", "230599118-51"),  # DMPP
+    ("ROSANA METZNER",   "066313968-67"),  # UFIEC
+]
+
+
+def processar_planilha_pesquisa_preco(pdf_path):
+    """
+    Processa a Planilha de Pesquisa de Preço (Quadro Comparativo).
+
+    Regras:
+    - Renderiza todas as páginas do PDF.
+    - Em cada página, procura por uma das assinaturas conhecidas
+      (nome + CPF) — ver ASSINATURAS_PLANILHA_PRECO.
+    - Quando encontra a assinatura em uma página, mantém tudo até o
+      final dessa linha e descarta o restante (e todas as páginas
+      seguintes — útil quando o sistema gera páginas vazias extras).
+    - Concatena as páginas resultantes verticalmente em uma única imagem
+      (compatível com o editor do SEI, que cola uma única imagem).
+    - Se a assinatura não for encontrada em nenhuma página, retorna
+      todas as páginas concatenadas (fallback seguro).
+    """
+    try:
+        print("  📄 Processando Planilha de Pesquisa de Preço (multi-página)...")
+
+        doc = fitz.open(pdf_path)
+        total_paginas = len(doc)
+        doc.close()
+
+        if total_paginas == 0:
+            print("  ❌ PDF sem páginas")
+            return None
+
+        print(f"  📑 PDF possui {total_paginas} página(s)")
+
+        paginas_processadas = []
+        assinatura_encontrada = False
+
+        for idx in range(total_paginas):
+            print(f"  🖼️  Renderizando página {idx + 1}/{total_paginas}...")
+            imagem = renderizar_pagina_pdf(pdf_path, idx)
+            if imagem is None:
+                continue
+
+            # Procura qualquer uma das assinaturas conhecidas nesta página
+            print(f"  🔍 Procurando assinatura na página {idx + 1}...")
+            coords_nome = None
+            coords_cpf  = None
+            assinante   = None
+
+            for nome, cpf in ASSINATURAS_PLANILHA_PRECO:
+                c_cpf  = ocr_utils.localizar_texto_na_imagem(imagem, cpf)
+                c_nome = ocr_utils.localizar_texto_na_imagem(imagem, nome)
+                if c_cpf or c_nome:
+                    coords_cpf  = c_cpf
+                    coords_nome = c_nome
+                    assinante   = nome
+                    break
+
+            if coords_cpf or coords_nome:
+                # Determina o Y final do recorte: pega o MAIOR y+h entre os
+                # encontrados, para garantir que tanto nome quanto CPF
+                # fiquem visíveis na imagem final.
+                y_corte = 0
+                if coords_nome:
+                    _, y, _, h = coords_nome
+                    y_corte = max(y_corte, y + h)
+                if coords_cpf:
+                    _, y, _, h = coords_cpf
+                    y_corte = max(y_corte, y + h)
+
+                # Se só achou o nome, adiciona uma margem para incluir o
+                # CPF que normalmente fica logo abaixo.
+                if coords_nome and not coords_cpf:
+                    _, _, _, h = coords_nome
+                    y_corte += int(h * 2.5)
+
+                # Pequena margem inferior para não cortar rente
+                margem = 15
+                y_corte = min(imagem.height, y_corte + margem)
+
+                largura, altura = imagem.size
+                imagem_cortada = imagem.crop((0, 0, largura, y_corte))
+                print(f"  ✂️ Assinatura '{assinante}' encontrada na página "
+                      f"{idx + 1}: cortando de {altura}px para {y_corte}px")
+                paginas_processadas.append(imagem_cortada)
+                assinatura_encontrada = True
+                break  # ignora páginas seguintes (vazias/sobras)
+            else:
+                print(f"  ➕ Página {idx + 1} sem assinatura — incluindo inteira")
+                paginas_processadas.append(imagem)
+
+        if not assinatura_encontrada:
+            print("  ⚠️ Assinatura não encontrada em nenhuma página — "
+                  "usando todas as páginas sem corte")
+
+        if not paginas_processadas:
+            print("  ❌ Nenhuma página renderizada")
+            return None
+
+        print(f"  🧩 Empilhando {len(paginas_processadas)} página(s) em uma imagem única...")
+        return _empilhar_imagens_verticalmente(paginas_processadas)
+
+    except Exception as e:
+        print(f"❌ Erro ao processar planilha de pesquisa de preço: {e}")
+        return None
+
+
 def salvar_imagem_temporaria(imagem, prefixo="temp"):
     try:
         temp_path = os.path.join(config.BASE_DIR, f"{prefixo}_temp.{config.IMAGE_FORMAT.lower()}")
