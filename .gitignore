@@ -57,6 +57,13 @@ documentos/
 # Configurações locais (caso você personalize)
 config_local.py
 
+# Overrides da GUI
+user_config.json
+
+# PyInstaller
+*.spec.bak
+SeiAuto.exe
+
 # Arquivos temporários
 *.tmp
 *.temp

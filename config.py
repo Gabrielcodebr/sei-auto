@@ -290,3 +290,17 @@ def validar_configuracoes():
 
 if __name__ == "__main__":
     validar_configuracoes()
+
+
+# =====================================================================
+# 9. OVERRIDES DO USUÁRIO (via GUI)
+# ---------------------------------------------------------------------
+# Se existir user_config.json na raiz do projeto, seus valores
+# sobrescrevem os defaults acima. Criado e editado pela interface
+# gráfica (main_gui.py). Seguro: se não existir, nada muda.
+# =====================================================================
+try:
+    from gui.config_manager import _apply_overrides as _sei_apply_overrides
+    _sei_apply_overrides(globals())
+except Exception:
+    pass

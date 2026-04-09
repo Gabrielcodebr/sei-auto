@@ -2,62 +2,123 @@
 
 Script de automação para inserção de documentos no SEI-SP (Sistema Eletrônico de Informações do Governo do Estado de São Paulo). Automatiza a prestação de contas de adiantamentos, inserindo os documentos comprobatórios num processo já aberto.
 
-O script assume que o usuário fez login, abriu o processo correto e está com o Firefox na tela. A partir daí, controla mouse e teclado para inserir os documentos na sequência correta.
+O programa assume que o usuário fez login, abriu o processo correto e está com o Firefox na tela. A partir daí, controla mouse e teclado para inserir os documentos na sequência correta.
+
+Oferece **dois modos de uso**:
+
+- 🖼 **Modo fácil (GUI)** — interface gráfica PySide6 com abas, editor visual de todas as configurações, captura assistida de coordenadas, log ao vivo, hotkey F12 para parar e executável único `SeiAuto.exe`.
+- 💻 **Modo desenvolvedor (CLI)** — execução clássica pelo terminal com menus interativos (`python sei_automation.py`).
 
 ---
 
-## Requisitos
+## 📦 Instalação Rápida (Modo Fácil)
 
-### Sistema
+### 1. Pré-requisitos do sistema
 
-- Windows 10 ou superior
-- Resolução de tela: **1600x900** — as coordenadas de clique são fixas para essa resolução
-- Firefox maximizado (não fullscreen), com zoom em 100%
+- **Windows 10+**
+- **Resolução de tela 1600x900** (as coordenadas-padrão assumem essa resolução — mas você pode recalibrar na própria GUI)
+- **Firefox** maximizado com zoom 100%
 
-### Programas
+### 2. Instalar o Tesseract OCR (obrigatório)
 
-**Python 3.10+**
-Baixe em [python.org](https://www.python.org/downloads/). Durante a instalação, marque "Add Python to PATH".
+O bot usa OCR para ler datas e números dos PDFs. Baixe e instale:
 
-**Tesseract OCR**
-Usado para extrair datas e números dos PDFs. Baixe o instalador Windows em [github.com/UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
+👉 [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki) (instalador Windows)
 
-Após instalar, edite `config.py` e ajuste `TESSERACT_PATH` para o caminho do executável na sua máquina:
+Durante a instalação, **marque o idioma Português** na lista de idiomas adicionais. Anote o caminho onde o Tesseract foi instalado (geralmente `C:\Users\SeuUsuario\AppData\Local\Programs\Tesseract-OCR\tesseract.exe`) — você vai informá-lo na primeira execução da GUI.
 
-```python
-TESSERACT_PATH = r"C:\Users\SeuUsuario\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-```
+### 3. Instalar o Microsoft Word
 
-**Microsoft Word**
-Necessário para converter o arquivo `.docx` da Declaração de Recebimento em imagem. O script abre o Word via automação COM (`win32com`), converte o arquivo para PDF e renderiza a primeira página. O Word precisa estar instalado na máquina.
+Necessário para converter arquivos `.docx` (Declaração de Recebimento) em imagem. Qualquer versão do Word 2013+ serve.
 
----
+### 4. Baixar o projeto
 
-## Instalação
+**Opção A — usar o executável pronto** (recomendado para leigos):
 
-Clone o repositório e entre na pasta:
+Baixe `SeiAuto.exe` do último release em [Releases](https://github.com/).
+Coloque o `.exe` em uma pasta junto com uma subpasta chamada `documentos/` (onde ficarão seus PDFs).
+
+**Opção B — clonar o repositório e gerar você mesmo**:
 
 ```
 git clone <url-do-repositorio>
 cd sei-auto
-```
-
-Crie e ative o ambiente virtual:
-
-```
 python -m venv venv
 venv\Scripts\activate
-```
-
-Instale as dependências:
-
-```
 pip install -r requirements.txt
+build_exe.bat
 ```
+
+O script `build_exe.bat` gera `SeiAuto.exe` na raiz do projeto.
+
+### 5. Abrir
+
+Dê **duplo-clique em `SeiAuto.exe`**. Na primeira execução, a GUI vai avisar se o Tesseract ou a pasta de documentos não forem encontrados. Vá em **Configurações → Caminhos & OCR** e aponte para o executável do Tesseract e para sua pasta de documentos.
 
 ---
 
-## Organização dos documentos
+## 🎛 Usando a Interface Gráfica
+
+A GUI tem 4 abas:
+
+### ▶ Executar
+
+Substitui os menus antigos do terminal:
+
+1. Escolha o **tipo de processo**: DMPP (padrão) ou UFIEC (com memorando)
+2. Escolha o **modo de execução**:
+   - Do início (todos os documentos)
+   - Pular documentos fixos (começa do ciclo 1)
+   - Começar de um ciclo específico (escolha o número)
+   - Começar de um arquivo específico (escolha o prefixo)
+3. Clique em **▶ INICIAR AUTOMAÇÃO**
+4. Você tem **10 segundos** para posicionar o Firefox com o SEI visível
+5. A automação roda com o log ao vivo aparecendo na parte inferior
+
+#### Como parar a automação
+
+Durante a execução, três formas de parar:
+
+- **Tecla F12** (funciona mesmo sem a janela da GUI em foco) — **recomendado**
+- **Botão STOP** na mini-janela flutuante vermelha que aparece no canto superior direito
+- **Mouse no canto superior esquerdo** da tela (failsafe nativo do pyautogui)
+
+### 📄 Documentos
+
+Mostra a lista de arquivos da sua pasta `documentos/` com:
+- Número do prefixo
+- Nome do arquivo
+- Tipo detectado automaticamente
+- Tamanho
+
+Use esta aba para conferir se todos os documentos estão na pasta **antes** de iniciar a automação.
+
+### ⚙ Configurações
+
+Editor visual de **tudo** que pode ser customizado. Sub-abas:
+
+- **📍 Coordenadas** — posição de cada botão/campo do SEI na tela. Para cada coordenada você tem:
+  - 🎯 **Capturar**: clique, posicione o mouse sobre o alvo, aguarde 3 segundos → captura a posição automaticamente
+  - 👁 **Ver**: move o cursor para a coordenada atual (para conferência)
+- **⏱ Tempos** — delays entre ações. Aumente se o SEI estiver lento.
+- **📂 Caminhos & OCR** — caminho do Tesseract, pasta de documentos, idioma, DPI etc.
+- **📄 Tipos de Documento** — termos de busca e campos preenchidos para cada tipo (tabela editável)
+- **📝 Textos & Templates** — template do despacho de aprovação de NE e lista de assinaturas da planilha de preços
+
+Tudo que você alterar aqui é salvo em `user_config.json` (na pasta do projeto). Este arquivo **sobrescreve** os valores padrão do `config.py`, então nunca mexa no código Python diretamente.
+
+Botões do rodapé:
+- 💾 **Salvar** — grava em `user_config.json`
+- ↺ **Restaurar padrões** — apaga `user_config.json` (volta aos valores originais)
+- 📁 **Abrir JSON** — abre o arquivo no editor padrão
+
+### ℹ Sobre
+
+Informações do projeto e atalhos.
+
+---
+
+## 📁 Organização dos documentos
 
 Crie uma pasta `documentos/` na raiz do projeto e coloque os arquivos com prefixo numérico para definir a ordem de inserção. O número do prefixo não precisa ser consecutivo — o script ordena numericamente.
 
@@ -111,16 +172,30 @@ Adicione o Memorando/Justificativa como segundo arquivo:
 
 ---
 
-## Execução
+## 💻 Modo Desenvolvedor (CLI)
 
-Com o Firefox aberto, processo no SEI visível na tela:
+Se você prefere o terminal ou precisa debugar a lógica de automação isolada da GUI:
+
+### Instalação
+
+```
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Configuração
+
+Edite `config.py` manualmente (ou deixe a GUI gerar o `user_config.json` — ambos funcionam em paralelo).
+
+### Execução
 
 ```
 venv\Scripts\activate
 python sei_automation.py
 ```
 
-O script exibe dois menus:
+O script exibe dois menus no terminal:
 
 1. **Tipo de processo**: DMPP ou UFIEC
 2. **Ponto de início**:
@@ -129,22 +204,45 @@ O script exibe dois menus:
    - Começar de um ciclo específico
    - Começar de um arquivo específico pelo número prefixo
 
-Após a seleção, o script aguarda 10 segundos antes de iniciar. Use esse tempo para garantir que a tela está na posição correta.
-
-Para cancelar durante a execução, mova o mouse para o **canto superior esquerdo** da tela.
+Após a seleção, o script aguarda 10 segundos antes de iniciar. Para cancelar durante a execução, mova o mouse para o **canto superior esquerdo** da tela (não tem F12 no modo CLI).
 
 ---
 
-## Resolução de problemas
+## 🏗 Construindo o executável (.exe)
+
+Com o venv ativado e dependências instaladas:
+
+```
+build_exe.bat
+```
+
+Ou diretamente:
+
+```
+pyinstaller SeiAuto.spec --clean --noconfirm
+copy dist\SeiAuto.exe SeiAuto.exe
+```
+
+O executável fica na raiz do projeto como `SeiAuto.exe` (~150-250 MB, é normal — inclui PySide6 e todas as dependências). Você pode distribuí-lo junto com a pasta `documentos/` e um README pequeno para usuários leigos.
+
+**Importante**: o Tesseract OCR e o Microsoft Word **não** são empacotados no `.exe`. O usuário final precisa instalá-los separadamente.
+
+---
+
+## ❓ Resolução de problemas
 
 | Problema | Causa provável | Solução |
 |---|---|---|
-| Cliques no lugar errado | Resolução diferente de 1600x900 ou Firefox não maximizado | Ajuste a resolução e maximize o Firefox |
-| Tesseract não encontrado | Caminho incorreto em `config.py` | Corrija `TESSERACT_PATH` |
-| Erro ao converter .docx | Microsoft Word não instalado ou inacessível | Verifique se o Word está instalado |
-| Link da NE não capturado | Ícone da NE na árvore em posição diferente | Execute com UFIEC/DMPP correto; ajuste `COORD_ICONE_NE_ARVORE_*` se necessário |
-| Script para sozinho | Erro no terminal | Leia a mensagem de erro; o pyautogui cancela se o mouse for para o canto superior esquerdo |
+| Cliques no lugar errado | Resolução diferente de 1600x900 ou Firefox não maximizado | Ajuste a resolução e maximize o Firefox, ou recalibre na aba Configurações → Coordenadas |
+| Tesseract não encontrado | Caminho incorreto | Ajuste em Configurações → Caminhos & OCR |
+| Pasta documentos não encontrada | Caminho errado | Ajuste em Configurações → Caminhos & OCR |
+| Erro ao converter .docx | Microsoft Word não instalado | Verifique se o Word está instalado |
+| Link da NE não capturado | Ícone da NE na árvore em posição diferente | Recapture `COORD_ICONE_NE_ARVORE_*` na aba Coordenadas |
+| F12 não para a execução | Biblioteca `keyboard` precisa de permissão elevada em alguns ambientes | Use o botão STOP da mini-janela flutuante, ou mouse no canto superior esquerdo |
+| Windows Defender bloqueia o .exe | Falso positivo comum do PyInstaller | Clique em "Mais informações → Executar assim mesmo". Se preferir, rode em modo desenvolvedor com `run_gui.bat` |
+| GUI não abre após instalar | Dependências não instaladas | Rode `pip install -r requirements.txt` no venv ativado |
+| Alguma coisa quebrou após editar configurações | Configuração inválida salva no JSON | Abra a aba Configurações e clique em "↺ Restaurar padrões" |
 
 ### Recalibrar coordenadas
 
-Se a resolução ou o layout do SEI mudarem, use os scripts na pasta `calibracao/` para mapear as novas posições dos elementos na tela.
+Se a resolução ou o layout do SEI mudarem, **use a aba Configurações → Coordenadas** na GUI — o botão 🎯 Capturar substitui os antigos scripts em `calibracao/`. Os scripts legados continuam na pasta para referência.
