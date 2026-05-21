@@ -242,21 +242,28 @@ class SEIAutomation:
         # Remove keywords conhecidas (ordem importa — mais específico primeiro)
         keywords = [
             r'ISS\s+Empresa\s*[-–]\s*',
+            r'NOTA\s+FISCAL\s+\d*\s*E\s+COMPROVANTE\s+DE\s+PAGAMENTO\s*',  # combinado
             r'COMPROVANTE\s+DE\s+PAGAMENTO\s+NF\s*',
             r'COMPROVANTE\s+DA\s+NOTA\s+FISCAL\s*',
+            r'COMPROVANTE\s+DE\s+PAGAMENTO\s*',
             r'COMPROVANTE\s*',
+            r'DECLARA[CÇ][AÃ]O\s+DE\s+RECEBIMENTO\s+CONFORMIDADE\s+E\s+DESTINA[CÇ][AÃ]O\s*',
             r'CADASTRO\s+NACIONAL\s+DE\s+PESSOA\s+JURIDICA\s*',
             r'CONSULTA\s+CNPJ\s*',
             r'CONSULTA\s+OPTANTE\s*',
             r'NOTA\s+FISCAL\s*',
+            r'QUADRO\s+COMPARATIVO\s+DE\s+PRE[CÇ]OS\s*(NF)?\s*',
             r'GUIA\s+ISS\s*',
             r'CONSULTA\s*',
         ]
         for kw in keywords:
             nome = re.sub(kw, '', nome, flags=re.IGNORECASE).strip()
 
-        # Remove número solto que sobrou logo no início: "1939 MURILO..." → "MURILO..."
-        nome = re.sub(r'^\d+\s*', '', nome).strip()
+        # Remove número solto e traços que sobraram no início
+        nome = re.sub(r'^[\d\s\-–—]+', '', nome).strip()
+
+        # Remove sufixo "- Copia" / "- Cópia" (Windows adiciona ao duplicar)
+        nome = re.sub(r'\s*-\s*C[oó]pia\s*$', '', nome, flags=re.IGNORECASE).strip()
 
         print(f"  🏢 Empresa extraída do nome do arquivo: '{nome}'")
         return nome or '[EMPRESA]'
