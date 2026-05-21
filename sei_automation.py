@@ -125,18 +125,61 @@ class SEIAutomation:
         # Documentos do ciclo
         if 'quadro' in nome or 'planilha' in nome or 'comparativo' in nome:
             return 'quadro'
-        if 'nota fiscal' in nome or 'nf ' in nome or 'nf-' in nome:
+
+        # NF + Comprovante podem vir juntos ou separados
+        is_nf = ('nota fiscal' in nome or 'nf ' in nome or 'nf-' in nome)
+        is_comprovante = 'comprovante' in nome
+
+        if is_nf and is_comprovante:
+            return 'nota_fiscal_com_comprovante'
+        if is_nf:
             return 'nota_fiscal'
-        if 'comprovante' in nome:
+        if is_comprovante:
             return 'comprovante'
+
         if 'declaracao' in nome or 'declaração' in nome or filepath.lower().endswith('.docx'):
             return 'declaracao'
-        if 'consulta' in nome or 'optante' in nome:
-            return 'consulta'
+        # CNPJ antes de consulta: "CONSULTA CNPJ" é doc de CNPJ, não de consulta optante
         if 'cnpj' in nome or 'cadastro' in nome:
             return 'cnpj'
+        if 'consulta' in nome or 'optante' in nome:
+            return 'consulta'
         
         return None
+
+    def agrupar_ciclos(self, docs_ciclo):
+        """
+        Agrupa os documentos de ciclo em ciclos individuais baseado no tipo
+        detectado pelo nome do arquivo. Cada ciclo começa com um 'quadro'.
+
+        Returns:
+            list de listas, cada sublista = [(filepath, tipo, indice_original), ...]
+        """
+        # Tagueia cada arquivo com seu tipo
+        tagged = []
+        for i, doc in enumerate(docs_ciclo):
+            tipo = self.identificar_tipo_documento_ciclo(doc)
+            tagged.append((doc, tipo, i))
+
+        # Agrupa: cada ciclo começa num 'quadro'
+        ciclos = []
+        ciclo_atual = None
+
+        for doc, tipo, orig_idx in tagged:
+            if tipo == 'quadro':
+                if ciclo_atual is not None:
+                    ciclos.append(ciclo_atual)
+                ciclo_atual = [(doc, tipo, orig_idx)]
+            else:
+                if ciclo_atual is None:
+                    print(f"  ⚠️ Arquivo antes do primeiro quadro comparativo, ignorando: {os.path.basename(doc)}")
+                    continue
+                ciclo_atual.append((doc, tipo, orig_idx))
+
+        if ciclo_atual is not None:
+            ciclos.append(ciclo_atual)
+
+        return ciclos
 
     def extrair_numero_nota_fiscal_do_nome(self, filepath):
         """
@@ -1355,135 +1398,64 @@ class SEIAutomation:
                 print("\n⏭️  Pulando documentos fixos...")
 
             # ── Ciclos de Notas Fiscais ─────────────────────────────────
-            # Cada ciclo: Quadro Comparativo → NF → Comprovante → Declaração
-            #             → Consulta → CNPJ → Guia ISS (opcional) → Comprovante ISS (opcional)
-            idx = 0
+            # Agrupa por tipo detectado no nome do arquivo (não mais por posição fixa)
+            ciclos = self.agrupar_ciclos(docs_ciclo)
+            print(f"\n📊 {len(ciclos)} ciclo(s) detectado(s) nos documentos")
+            for i, ciclo in enumerate(ciclos, 1):
+                tipos = [t for _, t, _ in ciclo]
+                print(f"   Ciclo {i}: {len(ciclo)} arquivo(s) — tipos: {tipos}")
+
             num_nf = 1
 
             # Se o arquivo inicial está nos finais, pula todos os ciclos
             if arquivo_inicial_idx_finais is not None:
-                idx = len(docs_ciclo)
-            
+                ciclos = []
+
             # Pula ciclos se necessário (opção 3 do menu)
             if self.ciclo_inicial > 1 and not self.arquivo_inicial:
                 ciclos_a_pular = self.ciclo_inicial - 1
                 print(f"\n⏭️  Pulando {ciclos_a_pular} ciclo(s)...")
-                
-                ciclos_pulados = 0
-                while idx < len(docs_ciclo) and ciclos_pulados < ciclos_a_pular:
-                    # Conta 6 arquivos base do ciclo
-                    arquivos_no_ciclo = 6
-                    
-                    # Verifica se há ISS no ciclo
-                    idx_temp = idx + 6
-                    while idx_temp < len(docs_ciclo) and 'iss' in os.path.basename(docs_ciclo[idx_temp]).lower():
-                        arquivos_no_ciclo += 1
-                        idx_temp += 1
-                    
-                    idx += arquivos_no_ciclo
-                    ciclos_pulados += 1
-                    num_nf += 1
-                
-                print(f"   Pulados {ciclos_pulados} ciclo(s), iniciando do ciclo {num_nf}")
+                ciclos = ciclos[ciclos_a_pular:]
+                num_nf = self.ciclo_inicial
 
-            while idx < len(docs_ciclo):
-                restantes = docs_ciclo[idx:]
+            # Tabela de despacho: tipo → handler
+            handler_map = {
+                'quadro':       self.processar_documento_06_quadro_comparativo,
+                'nota_fiscal':  self.processar_documento_07_nota_fiscal,
+                'comprovante':  self.processar_documento_08_comprovante_fiscal,
+                'declaracao':   self.processar_documento_09_declaracao_recebimento,
+                'consulta':     self.processar_documento_10_consulta_optante,
+                'cnpj':         self.processar_documento_11_cnpj,
+                'guia_iss':     self.processar_documento_12_guia_iss,
+                'comprov_iss':  self.processar_documento_13_comprovante_iss,
+            }
 
-                # Precisa de pelo menos 6 arquivos para um ciclo completo sem ISS
-                if len(restantes) < 6 and arquivo_inicial_idx is None:
-                    print(f"\n⚠️ Apenas {len(restantes)} arquivo(s) restante(s) antes do balancete — encerrando ciclos.")
-                    break
-
+            for ciclo in ciclos:
                 print(f"\n{'='*70}")
                 print(f"🔁 CICLO NOTA FISCAL #{num_nf}")
                 print(f"{'='*70}")
 
-                # Verifica se deve pular para o arquivo_inicial
-                deve_pular = False
-                if arquivo_inicial_idx is not None and idx < arquivo_inicial_idx:
-                    deve_pular = True
+                for filepath, tipo, orig_idx in ciclo:
+                    # Skip arquivo_inicial
+                    if arquivo_inicial_idx is not None:
+                        if orig_idx < arquivo_inicial_idx:
+                            print(f"  ⏭️ Pulando: {os.path.basename(filepath)}")
+                            continue
+                        elif orig_idx == arquivo_inicial_idx:
+                            arquivo_inicial_idx = None  # Encontrou, para de pular
 
-                # Quadro Comparativo
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None  # Resetar para não pular mais
-                    self.processar_documento_06_quadro_comparativo(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-                if idx >= len(docs_ciclo): break
+                    # Caso especial: NF + Comprovante combinados → upload duplo
+                    if tipo == 'nota_fiscal_com_comprovante':
+                        self.processar_documento_07_nota_fiscal(filepath)
+                        self.processar_documento_08_comprovante_fiscal(filepath)
+                        continue
 
-                # Nota Fiscal
-                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None
-                    self.processar_documento_07_nota_fiscal(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-                if idx >= len(docs_ciclo): break
-
-                # Comprovante Fiscal
-                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None
-                    self.processar_documento_08_comprovante_fiscal(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-                if idx >= len(docs_ciclo): break
-
-                # Declaração de Recebimento
-                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None
-                    self.processar_documento_09_declaracao_recebimento(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-                if idx >= len(docs_ciclo): break
-
-                # Consulta Optante
-                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None
-                    self.processar_documento_10_consulta_optante(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-                if idx >= len(docs_ciclo): break
-
-                # CNPJ
-                deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                if not deve_pular or (arquivo_inicial_idx == idx):
-                    if arquivo_inicial_idx == idx:
-                        arquivo_inicial_idx = None
-                    self.processar_documento_11_cnpj(docs_ciclo[idx])
-                else:
-                    print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                idx += 1
-
-                # ISS opcional - verifica pelo nome do arquivo
-                while idx < len(docs_ciclo) and 'iss' in os.path.basename(docs_ciclo[idx]).lower():
-                    deve_pular = arquivo_inicial_idx is not None and idx < arquivo_inicial_idx
-                    nome = os.path.basename(docs_ciclo[idx]).lower()
-                    
-                    if not deve_pular or (arquivo_inicial_idx == idx):
-                        if arquivo_inicial_idx == idx:
-                            arquivo_inicial_idx = None
-                        # Se tiver "comprovante" no nome, é comprovante de ISS
-                        # Caso contrário, é guia de ISS
-                        if 'comprovante' in nome:
-                            self.processar_documento_13_comprovante_iss(docs_ciclo[idx])
-                        else:
-                            self.processar_documento_12_guia_iss(docs_ciclo[idx])
+                    # Despacho normal por tipo
+                    handler = handler_map.get(tipo)
+                    if handler:
+                        handler(filepath)
                     else:
-                        print(f"  ⏭️ Pulando: {os.path.basename(docs_ciclo[idx])}")
-                    idx += 1
+                        print(f"  ⚠️ Tipo desconhecido '{tipo}' para: {os.path.basename(filepath)}")
 
                 num_nf += 1
 
