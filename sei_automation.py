@@ -99,52 +99,45 @@ class SEIAutomation:
     # =========================================================
 
     def identificar_tipo_documento_ciclo(self, filepath):
-        """
-        Identifica qual tipo de documento do ciclo é o arquivo.
-        
-        Retorna:
-            'quadro'       - Quadro Comparativo (1º do ciclo)
-            'nota_fiscal'  - Nota Fiscal (2º do ciclo)
-            'comprovante'  - Comprovante da NF (3º do ciclo)
-            'declaracao'   - Declaração de Recebimento (4º do ciclo)
-            'consulta'     - Consulta Optante (5º do ciclo)
-            'cnpj'         - CNPJ (6º do ciclo)
-            'guia_iss'     - Guia de ISS (opcional)
-            'comprov_iss'  - Comprovante de ISS (opcional)
-            None           - Não identificado
-        """
         nome = os.path.basename(filepath).lower()
-        
+
         # ISS primeiro (mais específico)
         if 'iss' in nome:
-            if 'comprovante' in nome:
-                return 'comprov_iss'
+            # Verifica se 'comprovante' aparece ANTES de 'iss' no nome
+            pos_iss = nome.find('iss')
+            pos_comp = nome.find('comprovante')
+            if pos_comp != -1 and pos_comp < pos_iss:
+                return 'comprov_iss'  # ex: "COMPROVANTE ISS..."
+            elif 'comprovante' in nome:
+                return 'guia_iss_com_comprovante'  # ex: "GUIA ISS E COMPROVANTE..."
             else:
                 return 'guia_iss'
-        
-        # Documentos do ciclo
+
         if 'quadro' in nome or 'planilha' in nome or 'comparativo' in nome:
             return 'quadro'
 
-        # NF + Comprovante podem vir juntos ou separados
-        is_nf = ('nota fiscal' in nome or 'nf ' in nome or 'nf-' in nome)
-        is_comprovante = 'comprovante' in nome
+        pos_nf   = nome.find('nota fiscal') if 'nota fiscal' in nome else (
+                nome.find('nf ') if 'nf ' in nome else (
+                nome.find('nf-') if 'nf-' in nome else -1))
+        pos_comp = nome.find('comprovante') if 'comprovante' in nome else -1
 
-        if is_nf and is_comprovante:
-            return 'nota_fiscal_com_comprovante'
-        if is_nf:
+        if pos_nf != -1 and pos_comp != -1:
+            if pos_comp < pos_nf:
+                return 'comprovante'  # "COMPROVANTE PAGAMENTO NOTA FISCAL..." → só comprovante
+            else:
+                return 'nota_fiscal_com_comprovante'  # NF vem antes → arquivo duplo
+        if pos_nf != -1:
             return 'nota_fiscal'
-        if is_comprovante:
+        if pos_comp != -1:
             return 'comprovante'
 
         if 'declaracao' in nome or 'declaração' in nome or filepath.lower().endswith('.docx'):
             return 'declaracao'
-        # CNPJ antes de consulta: "CONSULTA CNPJ" é doc de CNPJ, não de consulta optante
         if 'cnpj' in nome or 'cadastro' in nome:
             return 'cnpj'
         if 'consulta' in nome or 'optante' in nome:
             return 'consulta'
-        
+
         return None
 
     def agrupar_ciclos(self, docs_ciclo):
@@ -1455,6 +1448,11 @@ class SEIAutomation:
                     if tipo == 'nota_fiscal_com_comprovante':
                         self.processar_documento_07_nota_fiscal(filepath)
                         self.processar_documento_08_comprovante_fiscal(filepath)
+                        continue
+                    
+                    if tipo == 'guia_iss_com_comprovante':
+                        self.processar_documento_12_guia_iss(filepath)
+                        self.processar_documento_13_comprovante_iss(filepath)
                         continue
 
                     # Despacho normal por tipo
