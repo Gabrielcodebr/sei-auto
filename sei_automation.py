@@ -210,55 +210,76 @@ class SEIAutomation:
         """
         Extrai o nome da empresa a partir do nome do arquivo.
 
-        Remove:
-        - Prefixo numérico:  "25-"
-        - Extensão:          ".pdf", ".docx"
-        - Palavras-chave:    NOTA FISCAL, COMPROVANTE DE PAGAMENTO NF,
-                             COMPROVANTE, CONSULTA, CADASTRO NACIONAL DE
-                             PESSOA JURIDICA, ISS Empresa -
-        - Número solto após keyword: ex "NOTA FISCAL 1939 ..." → remove "1939"
-
-        Exemplos:
-          "25-NOTA FISCAL 1939 MURILO CRISTOFOLETTI ARMENIO.pdf"
-              → "MURILO CRISTOFOLETTI ARMENIO"
-          "13-COMPROVANTE DE PAGAMENTO NF 8273 JOSÉ CARLOS ROSATI ITU.pdf"
-              → "JOSÉ CARLOS ROSATI ITU"
-          "17-ISS Empresa - GAMA FILTROS E REFRIGERACAO LTDA ME.pdf"
-              → "GAMA FILTROS E REFRIGERACAO LTDA ME"
+        Estratégia:
+        - Remove prefixo numérico ("25-")
+        - Remove extensão
+        - Localiza o traço separador que vem DEPOIS das palavras-chave do tipo
+        de documento (ex: "NOTA FISCAL 1939 - EMPRESA" ou "DECLARAÇÃO DE RECEBIMENTO - EMPRESA")
+        - Tudo que vier após esse traço é a empresa
+        - Se não houver traço separador claro, aplica remoção por keywords como fallback
         """
         nome = os.path.basename(filepath)
-        # Remove extensão
         nome = os.path.splitext(nome)[0]
-        # Remove prefixo numérico e traço: "25-"
-        nome = re.sub(r'^\d+[-\s]*', '', nome)
+        nome = re.sub(r'^\d+[-\s]*', '', nome).strip()
 
-        # Remove keywords conhecidas (ordem importa — mais específico primeiro)
+        # Estratégia 1: separador " - " explícito no nome
+        # Ex: "DECLARAÇÃO DE RECEBIMENTO - EMPRESA XYZ"
+        #     "CONSULTA OPTANTE - EMPRESA XYZ"
+        #     "NOTA FISCAL 1939 - EMPRESA XYZ" (alguns arquivos usam esse padrão)
+        if ' - ' in nome:
+            # Pega tudo após o ÚLTIMO " - " que precede o nome da empresa
+            # Mas pode haver " - " dentro do nome da empresa, então pega após o PRIMEIRO
+            # que ocorre depois de palavras-chave conhecidas de tipo de documento
+            partes = nome.split(' - ', 1)  # divide no primeiro traço apenas
+            candidato = partes[1].strip() if len(partes) > 1 else ''
+            # Remove "Copia"/"Cópia" no final (Windows duplica arquivos assim)
+            candidato = re.sub(r'\s*-\s*C[oó]pia\s*$', '', candidato, flags=re.IGNORECASE).strip()
+            # Remove número solto no início (ex: "2 EMPRESA XYZ" → "EMPRESA XYZ")
+            candidato = re.sub(r'^\d+\s*', '', candidato).strip()
+            if candidato:
+                print(f"  🏢 Empresa extraída (separador ' - '): '{candidato}'")
+                return candidato
+
+        # Estratégia 2: remove bloco de palavras maiúsculas do início até o número
+        # Ex: "NOTA FISCAL 1939 EMPRESA XYZ" → remove "NOTA FISCAL 1939" → "EMPRESA XYZ"
+        # Ex: "ISS Empresa - GAMA FILTROS..." → já tratado acima pelo ' - '
+        #
+        # Detecta sequência: PALAVRAS_MAIÚSCULAS + possível número → resto é empresa
+        match = re.match(
+            r'^[A-ZÀÁÂÃÇÉÊÍÓÔÕÚÜ\s]+\d+\s+(.*)',  # "TIPO ... NÚMERO EMPRESA"
+            nome
+        )
+        if match:
+            candidato = match.group(1).strip()
+            candidato = re.sub(r'^\d+\s*', '', candidato).strip()
+            candidato = re.sub(r'\s*-\s*C[oó]pia\s*$', '', candidato, flags=re.IGNORECASE).strip()
+            if candidato:
+                print(f"  🏢 Empresa extraída (após número): '{candidato}'")
+                return candidato
+
+        # Estratégia 3: fallback com keywords explícitas (mantido como última saída)
         keywords = [
             r'ISS\s+Empresa\s*[-–]\s*',
-            r'NOTA\s+FISCAL\s+\d*\s*E\s+COMPROVANTE\s+DE\s+PAGAMENTO\s*',  # combinado
             r'COMPROVANTE\s+DE\s+PAGAMENTO\s+NF\s*',
             r'COMPROVANTE\s+DA\s+NOTA\s+FISCAL\s*',
             r'COMPROVANTE\s+DE\s+PAGAMENTO\s*',
             r'COMPROVANTE\s*',
-            r'DECLARA[CÇ][AÃ]O\s+DE\s+RECEBIMENTO\s+CONFORMIDADE\s+E\s+DESTINA[CÇ][AÃ]O\s*',
             r'CADASTRO\s+NACIONAL\s+DE\s+PESSOA\s+JURIDICA\s*',
             r'CONSULTA\s+CNPJ\s*',
             r'CONSULTA\s+OPTANTE\s*',
-            r'NOTA\s+FISCAL\s*',
-            r'QUADRO\s+COMPARATIVO\s+DE\s+PRE[CÇ]OS\s*(NF)?\s*',
-            r'GUIA\s+ISS\s*',
             r'CONSULTA\s*',
+            r'NOTA\s+FISCAL\s*',
+            r'QUADRO\s+COMPARATIVO\s+[^-]*',
+            r'GUIA\s+ISS\s*',
+            r'DECLARA[CÇ][AÃ]O\s+[^-]*',  # qualquer "DECLARAÇÃO DE ..." genérico
         ]
         for kw in keywords:
             nome = re.sub(kw, '', nome, flags=re.IGNORECASE).strip()
 
-        # Remove número solto e traços que sobraram no início
         nome = re.sub(r'^[\d\s\-–—]+', '', nome).strip()
-
-        # Remove sufixo "- Copia" / "- Cópia" (Windows adiciona ao duplicar)
         nome = re.sub(r'\s*-\s*C[oó]pia\s*$', '', nome, flags=re.IGNORECASE).strip()
 
-        print(f"  🏢 Empresa extraída do nome do arquivo: '{nome}'")
+        print(f"  🏢 Empresa extraída (fallback keywords): '{nome}'")
         return nome or '[EMPRESA]'
 
     # =========================================================
@@ -961,8 +982,16 @@ class SEIAutomation:
                 "Verifique se o Word está instalado e acessível na máquina."
             )
 
-        # Nome na árvore = empresa do ciclo atual
-        empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
+        # Fonte 1: nome do arquivo (sempre disponível, independe de contexto)
+        empresa = self.extrair_empresa_do_nome_arquivo(docx_path)
+
+        # Fonte 2: contexto como validação — se o arquivo não deu empresa mas o
+        # contexto tem, usa o contexto; se ambos têm, prefere o do arquivo
+        if empresa == '[EMPRESA]':
+            empresa_ctx = self.dados_contexto.get('nf_empresa', '')
+            if empresa_ctx:
+                empresa = empresa_ctx
+                print(f"  ℹ️ Empresa vinda do contexto (fallback): '{empresa}'")
 
         doc_cfg = config.DOCUMENTOS['declaracao_recebimento']
         self.clicar_botao_incluir_documento()
@@ -1072,15 +1101,19 @@ class SEIAutomation:
 
         dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
 
+        # Guarda no contexto para o comprovante ISS reutilizar
+        self.dados_contexto['iss_data']   = self._data_fallback(dados['data'])
+        self.dados_contexto['iss_numero'] = dados['numero'] or '[NÚMERO]'
+
         doc_cfg = config.DOCUMENTOS['guia_iss']
         self.clicar_botao_incluir_documento()
         self.pesquisar_e_selecionar_tipo_doc(doc_cfg['busca'])
         self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
         self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
-        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
-        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self.dados_contexto['iss_data'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      self.dados_contexto['iss_numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, self.dados_contexto['iss_numero'])
 
         pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
         self.aguardar(0.3)
@@ -1107,7 +1140,21 @@ class SEIAutomation:
         print("📄 DOCUMENTO 13: COMPROVANTE DE ISS")
         print("="*60)
 
-        dados = pdf_utils.extrair_dados_guia_iss(pdf_path)
+        # Reutiliza dados da guia ISS já extraída — igual ao comprovante fiscal com a NF
+        data   = self.dados_contexto.get('iss_data')
+        numero = self.dados_contexto.get('iss_numero')
+
+        # Fallback: extrai do arquivo caso venha de um ponto de retomada (opção 4 do menu)
+        if not data or not numero or numero == '[NÚMERO]':
+            print("  ⚠️ Dados ISS não encontrados no contexto — extraindo do arquivo...")
+            dados  = pdf_utils.extrair_dados_guia_iss(pdf_path)
+            data   = self._data_fallback(dados['data'])
+            numero = dados['numero'] or '[NÚMERO]'
+
+        # Empresa: do contexto se disponível, senão do nome do arquivo
+        empresa = self.dados_contexto.get('nf_empresa', '')
+        if not empresa:
+            empresa = self.extrair_empresa_do_nome_arquivo(pdf_path)
 
         doc_cfg = config.DOCUMENTOS['comprovante_iss']
         self.clicar_botao_incluir_documento()
@@ -1115,12 +1162,14 @@ class SEIAutomation:
         self.aguardar(config.TEMPOS['pos_pesquisa_externo'])
 
         self.selecionar_dropdown_tipo_externo(doc_cfg['tipo_externo'])
-        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        self._data_fallback(dados['data']))
-        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      dados['numero'])
-        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, dados['numero'])
+        self.preencher_campo_clicando(config.COORD_CAMPO_DATA,        data)
+        self.preencher_campo_clicando(config.COORD_CAMPO_NUMERO,      numero)
+        self.preencher_campo_clicando(config.COORD_CAMPO_NOME_ARVORE, empresa)
 
-        pyautogui.click(config.COORD_RADIO_NATO_DIGITAL)
-        self.aguardar(0.3)
+        pyautogui.click(config.COORD_RADIO_DIGITALIZADO)
+        self.aguardar(0.5)
+
+        self.selecionar_tipo_conferencia("Cópia Autenticada Administrativamente")
 
         self.selecionar_nivel_acesso_publico_externo()
         self.anexar_arquivo_externo(pdf_path)
