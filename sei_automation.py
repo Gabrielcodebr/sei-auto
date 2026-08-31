@@ -1362,25 +1362,6 @@ class SEIAutomation:
             return False
 
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
-        
-        # ── Atalho: apenas o Despacho de Aprovação da NE ────────────
-        if self.apenas_despacho_ne:
-            print("\n" + "="*60)
-            print("📄 MODO: Apenas Despacho de Aprovação da NE")
-            print("="*60)
-            self.dados_contexto['ne_numero'] = self.despacho_numero_ne or '[NÚMERO]'
-            self.dados_contexto['ne_data']   = self._data_fallback(self.despacho_data_ne)
-            try:
-                self.processar_documento_04_despacho_ne()
-                print("\n" + "="*70)
-                print("✅ DESPACHO DE APROVAÇÃO DA NE INSERIDO!")
-                print("="*70)
-                return True
-            except Exception as e:
-                print(f"\n\n❌ ERRO DURANTE EXECUÇÃO: {e}")
-                import traceback
-                traceback.print_exc()
-                return False
 
         try:
             # ── Encontra posição do arquivo inicial (antes de processar qualquer seção) ──
