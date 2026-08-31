@@ -3,7 +3,8 @@ Aba "Executar" — substitui os menus de terminal do sei_automation.py.
 
 Componentes:
 - Seleção de tipo de processo (DMPP / UFIEC)
-- Seleção de modo (do início / pular fixos / ciclo específico / arquivo específico)
+- Seleção de modo (do início / pular fixos / ciclo específico / arquivo
+  específico / apenas Despacho de Aprovação da NE)
 - Botão Iniciar com countdown
 - Log em tempo real
 - Integração com mini-janela flutuante + hotkey F12 para parar
@@ -13,7 +14,7 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QRadioButton, QSpinBox,
-    QPushButton, QPlainTextEdit, QLabel, QMessageBox
+    QPushButton, QPlainTextEdit, QLabel, QMessageBox, QLineEdit
 )
 
 from gui.automation_worker import AutomationWorker
@@ -65,6 +66,7 @@ class TabExecutar(QWidget):
         self.rb_pular = QRadioButton("Pular documentos fixos (começar do ciclo 1)")
         self.rb_ciclo = QRadioButton("Começar de um ciclo específico:")
         self.rb_arquivo = QRadioButton("Começar de um arquivo específico (número):")
+        self.rb_despacho = QRadioButton("Apenas Despacho de Aprovação da NE (documento sem arquivo):")
         self.rb_inicio.setChecked(True)
 
         self.spin_ciclo = QSpinBox()
@@ -76,6 +78,14 @@ class TabExecutar(QWidget):
         self.spin_arquivo.setRange(1, 9999)
         self.spin_arquivo.setValue(1)
         self.spin_arquivo.setEnabled(False)
+
+        self.edit_despacho_numero = QLineEdit()
+        self.edit_despacho_numero.setPlaceholderText("Número da NE")
+        self.edit_despacho_numero.setEnabled(False)
+
+        self.edit_despacho_data = QLineEdit()
+        self.edit_despacho_data.setPlaceholderText("Data (DD/MM/AAAA) — opcional, padrão hoje")
+        self.edit_despacho_data.setEnabled(False)
 
         vm.addWidget(self.rb_inicio)
         vm.addWidget(self.rb_pular)
@@ -92,8 +102,19 @@ class TabExecutar(QWidget):
         line_arquivo.addStretch(1)
         vm.addLayout(line_arquivo)
 
+        vm.addWidget(self.rb_despacho)
+        line_despacho = QHBoxLayout()
+        line_despacho.addSpacing(20)
+        line_despacho.addWidget(QLabel("Nº NE:"))
+        line_despacho.addWidget(self.edit_despacho_numero, 1)
+        line_despacho.addWidget(QLabel("Data:"))
+        line_despacho.addWidget(self.edit_despacho_data, 1)
+        vm.addLayout(line_despacho)
+
         self.rb_ciclo.toggled.connect(self.spin_ciclo.setEnabled)
         self.rb_arquivo.toggled.connect(self.spin_arquivo.setEnabled)
+        self.rb_despacho.toggled.connect(self.edit_despacho_numero.setEnabled)
+        self.rb_despacho.toggled.connect(self.edit_despacho_data.setEnabled)
 
         top_row.addWidget(gb_modo, 2)
         root.addLayout(top_row)
@@ -173,15 +194,35 @@ class TabExecutar(QWidget):
                 "ciclo_inicial": self.spin_ciclo.value(),
                 "arquivo_inicial": None,
             }
-        # rb_arquivo
+        if self.rb_arquivo.isChecked():
+            return {
+                "tipo_processo": tipo,
+                "pular_docs_fixos": True,
+                "ciclo_inicial": 1,
+                "arquivo_inicial": self.spin_arquivo.value(),
+            }
+        # rb_despacho — apenas o Despacho de Aprovação da NE, sem arquivo
+        numero = self.edit_despacho_numero.text().strip()
+        data = self.edit_despacho_data.text().strip()
         return {
             "tipo_processo": tipo,
             "pular_docs_fixos": True,
             "ciclo_inicial": 1,
-            "arquivo_inicial": self.spin_arquivo.value(),
+            "arquivo_inicial": None,
+            "apenas_despacho_ne": True,
+            "despacho_numero_ne": numero or None,
+            "despacho_data_ne": data or None,
         }
 
     def _start_countdown(self):
+        # Validação específica do modo "apenas despacho"
+        if self.rb_despacho.isChecked() and not self.edit_despacho_numero.text().strip():
+            QMessageBox.warning(
+                self, "Campo obrigatório",
+                "Informe o número da Nota de Empenho para gerar o Despacho de Aprovação."
+            )
+            return
+
         self._countdown = 10
         self.btn_iniciar.setEnabled(False)
         self.btn_cancelar_countdown.setEnabled(True)

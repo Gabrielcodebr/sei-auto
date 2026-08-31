@@ -1713,7 +1713,7 @@ if __name__ == "__main__":
         pular_docs_fixos=opcoes['pular_docs_fixos'],
         ciclo_inicial=opcoes['ciclo_inicial'],
         arquivo_inicial=opcoes.get('arquivo_inicial'),
-        tipo_processo=tipo_processo
+        tipo_processo=tipo_processo,
         apenas_despacho_ne=opcoes.get('apenas_despacho_ne', False),
         despacho_numero_ne=opcoes.get('despacho_numero_ne'),
         despacho_data_ne=opcoes.get('despacho_data_ne'),
