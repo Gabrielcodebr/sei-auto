@@ -4,17 +4,17 @@ Aba "Executar" — substitui os menus de terminal do sei_automation.py.
 Componentes:
 - Seleção de tipo de processo (DMPP / UFIEC)
 - Seleção de modo (do início / pular fixos / ciclo específico / arquivo
-  específico / apenas Despacho de Aprovação da NE)
+  específico / a partir do Despacho de Aprovação da NE)
 - Botão Iniciar com countdown
 - Log em tempo real
 - Integração com mini-janela flutuante + hotkey F12 para parar
 """
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QTimer, Qt, Signal, QDate, QRegularExpression
+from PySide6.QtGui import QFont, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QRadioButton, QSpinBox,
-    QPushButton, QPlainTextEdit, QLabel, QMessageBox, QLineEdit
+    QPushButton, QPlainTextEdit, QLabel, QMessageBox, QLineEdit, QDateEdit
 )
 
 from gui.automation_worker import AutomationWorker
@@ -66,7 +66,7 @@ class TabExecutar(QWidget):
         self.rb_pular = QRadioButton("Pular documentos fixos (começar do ciclo 1)")
         self.rb_ciclo = QRadioButton("Começar de um ciclo específico:")
         self.rb_arquivo = QRadioButton("Começar de um arquivo específico (número):")
-        self.rb_despacho = QRadioButton("Apenas Despacho de Aprovação da NE (documento sem arquivo):")
+        self.rb_despacho = QRadioButton("A partir do Despacho de Aprovação da NE:")
         self.rb_inicio.setChecked(True)
 
         self.spin_ciclo = QSpinBox()
@@ -79,13 +79,23 @@ class TabExecutar(QWidget):
         self.spin_arquivo.setValue(1)
         self.spin_arquivo.setEnabled(False)
 
+        # Número da NE: letras, números e separadores comuns (-, ., /),
+        # até 20 caracteres. Cobre formatos como "2024NE000123" ou "123/2024".
         self.edit_despacho_numero = QLineEdit()
         self.edit_despacho_numero.setPlaceholderText("Número da NE")
+        self.edit_despacho_numero.setMaxLength(20)
+        self.edit_despacho_numero.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r'^[A-Za-z0-9./\-]{0,20}$'))
+        )
         self.edit_despacho_numero.setEnabled(False)
 
-        self.edit_despacho_data = QLineEdit()
-        self.edit_despacho_data.setPlaceholderText("Data (DD/MM/AAAA) — opcional, padrão hoje")
-        self.edit_despacho_data.setEnabled(False)
+        # Data da NE: QDateEdit garante uma data real e válida (calendário),
+        # em vez de texto livre. Padrão: hoje.
+        self.date_despacho = QDateEdit()
+        self.date_despacho.setDisplayFormat("dd/MM/yyyy")
+        self.date_despacho.setCalendarPopup(True)
+        self.date_despacho.setDate(QDate.currentDate())
+        self.date_despacho.setEnabled(False)
 
         vm.addWidget(self.rb_inicio)
         vm.addWidget(self.rb_pular)
@@ -108,13 +118,13 @@ class TabExecutar(QWidget):
         line_despacho.addWidget(QLabel("Nº NE:"))
         line_despacho.addWidget(self.edit_despacho_numero, 1)
         line_despacho.addWidget(QLabel("Data:"))
-        line_despacho.addWidget(self.edit_despacho_data, 1)
+        line_despacho.addWidget(self.date_despacho, 1)
         vm.addLayout(line_despacho)
 
         self.rb_ciclo.toggled.connect(self.spin_ciclo.setEnabled)
         self.rb_arquivo.toggled.connect(self.spin_arquivo.setEnabled)
         self.rb_despacho.toggled.connect(self.edit_despacho_numero.setEnabled)
-        self.rb_despacho.toggled.connect(self.edit_despacho_data.setEnabled)
+        self.rb_despacho.toggled.connect(self.date_despacho.setEnabled)
 
         top_row.addWidget(gb_modo, 2)
         root.addLayout(top_row)
@@ -201,21 +211,19 @@ class TabExecutar(QWidget):
                 "ciclo_inicial": 1,
                 "arquivo_inicial": self.spin_arquivo.value(),
             }
-        # rb_despacho — apenas o Despacho de Aprovação da NE, sem arquivo
-        numero = self.edit_despacho_numero.text().strip()
-        data = self.edit_despacho_data.text().strip()
+        # rb_despacho — a partir do Despacho de Aprovação da NE, seguindo em diante
         return {
             "tipo_processo": tipo,
             "pular_docs_fixos": True,
             "ciclo_inicial": 1,
             "arquivo_inicial": None,
-            "apenas_despacho_ne": True,
-            "despacho_numero_ne": numero or None,
-            "despacho_data_ne": data or None,
+            "iniciar_do_despacho_ne": True,
+            "despacho_numero_ne": self.edit_despacho_numero.text().strip() or None,
+            "despacho_data_ne": self.date_despacho.date().toString("dd/MM/yyyy"),
         }
 
     def _start_countdown(self):
-        # Validação específica do modo "apenas despacho"
+        # Validação específica do modo "a partir do despacho"
         if self.rb_despacho.isChecked() and not self.edit_despacho_numero.text().strip():
             QMessageBox.warning(
                 self, "Campo obrigatório",

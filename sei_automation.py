@@ -32,7 +32,7 @@ class SEIAutomation:
     """
 
     def __init__(self, pasta_documentos=None, pular_primeiros=0, ciclo_inicial=1, pular_docs_fixos=False, arquivo_inicial=None, tipo_processo='DMPP',
-             apenas_despacho_ne=False, despacho_numero_ne=None, despacho_data_ne=None):
+             iniciar_do_despacho_ne=False, despacho_numero_ne=None, despacho_data_ne=None):
         """
         Args:
             pasta_documentos:   Caminho da pasta com documentos
@@ -41,9 +41,9 @@ class SEIAutomation:
             pular_docs_fixos:   Se True, pula docs fixos iniciais
             arquivo_inicial:    Número do arquivo para iniciar (ex: 31 para começar no arquivo 31)
             tipo_processo:      'DMPP' (padrão) ou 'UFIEC' (com memorando)
-            apenas_despacho_ne: Se True, executa SÓ o Despacho de Aprovação da NE
-            despacho_numero_ne: Número da NE (usado quando apenas_despacho_ne=True)
-            despacho_data_ne:   Data da NE (usado quando apenas_despacho_ne=True)
+            iniciar_do_despacho_ne: Se True, inicia diretamente do Despacho de Aprovação da NE
+            despacho_numero_ne: Número da NE (usado quando iniciar_do_despacho_ne=True)
+            despacho_data_ne:   Data da NE (usado quando iniciar_do_despacho_ne=True)
         """
         self.pasta_documentos  = pasta_documentos or config.DOCUMENTOS_DIR
         self.pular_primeiros   = pular_primeiros
@@ -51,7 +51,7 @@ class SEIAutomation:
         self.pular_docs_fixos  = pular_docs_fixos
         self.arquivo_inicial   = arquivo_inicial
         self.tipo_processo     = tipo_processo
-        self.apenas_despacho_ne = apenas_despacho_ne
+        self.iniciar_do_despacho_ne = iniciar_do_despacho_ne
         self.despacho_numero_ne = despacho_numero_ne
         self.despacho_data_ne   = despacho_data_ne
         self.documentos        = []
@@ -1427,7 +1427,21 @@ class SEIAutomation:
                     print("   Começando do primeiro ciclo...")
 
             # ── Documentos fixos (pula se solicitado) ───────────────────
-            if arquivo_inicial_idx_iniciais is not None or (not self.pular_docs_fixos and self.ciclo_inicial == 1 and not self.arquivo_inicial):
+            if self.iniciar_do_despacho_ne:
+                print("\n" + "="*60)
+                print("📄 MODO: A partir do Despacho de Aprovação da NE")
+                print("="*60)
+                self.dados_contexto['ne_numero'] = self.despacho_numero_ne or '[NÚMERO]'
+                self.dados_contexto['ne_data']   = self._data_fallback(self.despacho_data_ne)
+                self.processar_documento_04_despacho_ne()
+
+                docs_iniciais_mode = self.documentos[:inicio_ciclos]
+                if docs_iniciais_mode:
+                    self.processar_documento_05_ordem_bancaria(docs_iniciais_mode[-1])
+                else:
+                    print("⚠️ Arquivo da Ordem Bancária não encontrado na pasta — etapa pulada.")
+
+            elif arquivo_inicial_idx_iniciais is not None or (not self.pular_docs_fixos and self.ciclo_inicial == 1 and not self.arquivo_inicial):
                 inicio_iniciais = arquivo_inicial_idx_iniciais if arquivo_inicial_idx_iniciais is not None else 0
 
                 if self.tipo_processo == 'UFIEC':

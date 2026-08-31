@@ -56,7 +56,7 @@ class AutomationWorker(QThread):
                     ciclo_inicial=self.opcoes.get("ciclo_inicial", 1),
                     arquivo_inicial=self.opcoes.get("arquivo_inicial"),
                     tipo_processo=self.opcoes.get("tipo_processo", "DMPP"),
-                    apenas_despacho_ne=self.opcoes.get("apenas_despacho_ne", False),
+                    iniciar_do_despacho_ne=self.opcoes.get("iniciar_do_despacho_ne", False),
                     despacho_numero_ne=self.opcoes.get("despacho_numero_ne"),
                     despacho_data_ne=self.opcoes.get("despacho_data_ne"),
                 )
