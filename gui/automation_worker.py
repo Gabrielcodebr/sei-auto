@@ -29,6 +29,9 @@ class AutomationWorker(QThread):
                 - pular_docs_fixos (bool)
                 - ciclo_inicial (int)
                 - arquivo_inicial (int ou None)
+                - apenas_despacho_ne (bool, opcional)
+                - despacho_numero_ne (str ou None, opcional)
+                - despacho_data_ne (str ou None, opcional)
         """
         super().__init__(parent)
         self.opcoes = opcoes
@@ -53,6 +56,9 @@ class AutomationWorker(QThread):
                     ciclo_inicial=self.opcoes.get("ciclo_inicial", 1),
                     arquivo_inicial=self.opcoes.get("arquivo_inicial"),
                     tipo_processo=self.opcoes.get("tipo_processo", "DMPP"),
+                    apenas_despacho_ne=self.opcoes.get("apenas_despacho_ne", False),
+                    despacho_numero_ne=self.opcoes.get("despacho_numero_ne"),
+                    despacho_data_ne=self.opcoes.get("despacho_data_ne"),
                 )
 
                 # Monkey-patch: checa flag de parada antes de cada sleep
