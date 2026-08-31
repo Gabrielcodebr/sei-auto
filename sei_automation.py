@@ -31,7 +31,8 @@ class SEIAutomation:
     Todas as coordenadas, tempos e textos editáveis vivem em config.py.
     """
 
-    def __init__(self, pasta_documentos=None, pular_primeiros=0, ciclo_inicial=1, pular_docs_fixos=False, arquivo_inicial=None, tipo_processo='DMPP'):
+    def __init__(self, pasta_documentos=None, pular_primeiros=0, ciclo_inicial=1, pular_docs_fixos=False, arquivo_inicial=None, tipo_processo='DMPP',
+             apenas_despacho_ne=False, despacho_numero_ne=None, despacho_data_ne=None):
         """
         Args:
             pasta_documentos:   Caminho da pasta com documentos
@@ -40,6 +41,9 @@ class SEIAutomation:
             pular_docs_fixos:   Se True, pula docs fixos iniciais
             arquivo_inicial:    Número do arquivo para iniciar (ex: 31 para começar no arquivo 31)
             tipo_processo:      'DMPP' (padrão) ou 'UFIEC' (com memorando)
+            apenas_despacho_ne: Se True, executa SÓ o Despacho de Aprovação da NE
+            despacho_numero_ne: Número da NE (usado quando apenas_despacho_ne=True)
+            despacho_data_ne:   Data da NE (usado quando apenas_despacho_ne=True)
         """
         self.pasta_documentos  = pasta_documentos or config.DOCUMENTOS_DIR
         self.pular_primeiros   = pular_primeiros
@@ -47,6 +51,9 @@ class SEIAutomation:
         self.pular_docs_fixos  = pular_docs_fixos
         self.arquivo_inicial   = arquivo_inicial
         self.tipo_processo     = tipo_processo
+        self.apenas_despacho_ne = apenas_despacho_ne
+        self.despacho_numero_ne = despacho_numero_ne
+        self.despacho_data_ne   = despacho_data_ne
         self.documentos        = []
         self.dados_contexto    = {}  # Dados compartilhados entre documentos
 
@@ -1355,6 +1362,25 @@ class SEIAutomation:
             return False
 
         print("\n\n🚀 INICIANDO AUTOMAÇÃO...\n")
+        
+        # ── Atalho: apenas o Despacho de Aprovação da NE ────────────
+        if self.apenas_despacho_ne:
+            print("\n" + "="*60)
+            print("📄 MODO: Apenas Despacho de Aprovação da NE")
+            print("="*60)
+            self.dados_contexto['ne_numero'] = self.despacho_numero_ne or '[NÚMERO]'
+            self.dados_contexto['ne_data']   = self._data_fallback(self.despacho_data_ne)
+            try:
+                self.processar_documento_04_despacho_ne()
+                print("\n" + "="*70)
+                print("✅ DESPACHO DE APROVAÇÃO DA NE INSERIDO!")
+                print("="*70)
+                return True
+            except Exception as e:
+                print(f"\n\n❌ ERRO DURANTE EXECUÇÃO: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
 
         try:
             # ── Encontra posição do arquivo inicial (antes de processar qualquer seção) ──
@@ -1401,7 +1427,7 @@ class SEIAutomation:
                     print("   Começando do primeiro ciclo...")
 
             # ── Documentos fixos (pula se solicitado) ───────────────────
-            if not self.pular_docs_fixos and self.ciclo_inicial == 1 and (not self.arquivo_inicial or arquivo_inicial_idx_iniciais is not None):
+            if arquivo_inicial_idx_iniciais is not None or (not self.pular_docs_fixos and self.ciclo_inicial == 1 and not self.arquivo_inicial):
                 inicio_iniciais = arquivo_inicial_idx_iniciais if arquivo_inicial_idx_iniciais is not None else 0
 
                 if self.tipo_processo == 'UFIEC':
@@ -1594,6 +1620,7 @@ def exibir_menu(tipo_processo):
     print(f"  [2] Pular documentos fixos (começar do ciclo 1)")
     print("  [3] Começar de um ciclo específico")
     print("  [4] Começar de um arquivo específico")
+    print("  [5] Apenas o Despacho de Aprovação da NE (documento sem arquivo)")
     print("  [0] Sair")
     print()
     
@@ -1635,6 +1662,19 @@ def exibir_menu(tipo_processo):
             except ValueError:
                 print("❌ Número inválido.")
                 return exibir_menu(tipo_processo)
+            
+        if opcao == '5':
+            print()
+            numero = input("Número da Nota de Empenho: ").strip()
+            data_ne = input("Data da Nota de Empenho (DD/MM/AAAA) [Enter = hoje]: ").strip()
+            return {
+                'pular_docs_fixos':   True,
+                'ciclo_inicial':      1,
+                'arquivo_inicial':    None,
+                'apenas_despacho_ne': True,
+                'despacho_numero_ne': numero or None,
+                'despacho_data_ne':   data_ne or None,
+            }
         
         print("❌ Opção inválida")
         return exibir_menu(tipo_processo)
@@ -1674,6 +1714,9 @@ if __name__ == "__main__":
         ciclo_inicial=opcoes['ciclo_inicial'],
         arquivo_inicial=opcoes.get('arquivo_inicial'),
         tipo_processo=tipo_processo
+        apenas_despacho_ne=opcoes.get('apenas_despacho_ne', False),
+        despacho_numero_ne=opcoes.get('despacho_numero_ne'),
+        despacho_data_ne=opcoes.get('despacho_data_ne'),
     )
     
     sucesso = automacao.executar()

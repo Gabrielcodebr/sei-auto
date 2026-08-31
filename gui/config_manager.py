@@ -60,6 +60,10 @@ OVERRIDABLE_KEYS = [
     "DESPACHO_APROVACAO_TEMPLATE",
 ]
 
+# Chaves cujo valor é um dict de dicts (precisa merge por sub-chave,
+# não substituição total) para não perder campos não editados na GUI.
+_DEEP_MERGE_KEYS = {"DOCUMENTOS", "TEMPOS"}
+
 
 def _load_json():
     """Lê o arquivo user_config.json se existir, senão retorna dict vazio."""
@@ -83,6 +87,31 @@ def _normalize_value(key, value):
     return value
 
 
+def _merge_dict(original, override):
+    """Merge recursivo: valores em `override` têm prioridade, mas chaves
+    presentes em `original` e ausentes em `override` são preservadas.
+    Evita que um override parcial (ex: só 'busca' de um doc) apague as
+    demais chaves (ex: 'descricao', 'nome_arvore') dessa entrada.
+    """
+    if not isinstance(original, dict) or not isinstance(override, dict):
+        return override
+    merged = dict(original)
+    for k, v in override.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = _merge_dict(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+
+def _resolve_override(key, current_value, new_value):
+    """Decide como combinar o valor atual com o override, por chave."""
+    new_value = _normalize_value(key, new_value)
+    if key in _DEEP_MERGE_KEYS and isinstance(current_value, dict) and isinstance(new_value, dict):
+        return _merge_dict(current_value, new_value)
+    return new_value
+
+
 def _apply_overrides(config_globals):
     """Aplica os overrides no dict globals() do config.py.
 
@@ -94,7 +123,7 @@ def _apply_overrides(config_globals):
     for key, value in overrides.items():
         if key not in OVERRIDABLE_KEYS:
             continue
-        config_globals[key] = _normalize_value(key, value)
+        config_globals[key] = _resolve_override(key, config_globals.get(key), value)
 
 
 def load_user_config():
@@ -109,7 +138,8 @@ def load_user_config():
     for key, value in overrides.items():
         if key not in OVERRIDABLE_KEYS:
             continue
-        setattr(config, key, _normalize_value(key, value))
+        current = getattr(config, key, None)
+        setattr(config, key, _resolve_override(key, current, value))
 
 
 def get_current_config():
