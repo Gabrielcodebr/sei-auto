@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QPushButton, QPlainTextEdit, QLabel, QMessageBox, QLineEdit, QDateEdit
 )
 
+import config
+import doc_ordem
 from gui.automation_worker import AutomationWorker
 from gui.floating_stop import FloatingStopWindow
 from gui.stop_controller import stop_controller
@@ -223,6 +225,19 @@ class TabExecutar(QWidget):
         }
 
     def _start_countdown(self):
+        # Bloqueia início se houver conflito de numeração não resolvido
+        # (mesmo número em 2+ arquivos — ver doc_ordem.py / aba Documentos)
+        pendentes = doc_ordem.conflitos_pendentes(config.DOCUMENTOS_DIR, config.BASE_DIR)
+        if pendentes:
+            QMessageBox.warning(
+                self, "Conflito de numeração pendente",
+                f"Há {len(pendentes)} conflito(s) de numeração não resolvido(s) "
+                "na pasta de documentos (arquivos diferentes com o mesmo "
+                "número). Vá até a aba 'Documentos' e defina qual arquivo vem "
+                "primeiro antes de iniciar."
+            )
+            return
+
         # Validação específica do modo "a partir do despacho"
         if self.rb_despacho.isChecked() and not self.edit_despacho_numero.text().strip():
             QMessageBox.warning(

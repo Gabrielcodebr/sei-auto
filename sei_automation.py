@@ -19,6 +19,8 @@ from docx import Document as DocxDocument
 import config
 import ocr_utils
 import pdf_utils
+import doc_ordem
+
 
 # Configurações do pyautogui
 pyautogui.PAUSE = config.PAUSE_BETWEEN_ACTIONS
@@ -67,22 +69,35 @@ class SEIAutomation:
         time.sleep(segundos)
 
     def _data_fallback(self, data):
-        """Retorna a data fornecida ou a data de hoje como último recurso (formato DD/MM/YYYY)"""
+        """Retorna a data fornecida ou uma data-placeholder óbvia como
+        último recurso (formato DD/MM/YYYY).
+
+        NUNCA retorna o texto literal "[DATA]" — isso não pode ir
+        parar em um campo do SEI. Quando a data não pôde ser
+        determinada, usa config.DATA_FALLBACK_PADRAO (uma data
+        propositalmente "impossível", ex: 01/01/1999) para que fique
+        óbvio na revisão manual que aquele documento precisa de
+        correção.
+        """
         if data:
             return data
-        hoje = date.today().strftime('%d/%m/%Y')
-        print(f"  ⚠️ Data não encontrada — usando data de hoje como fallback: {hoje}")
-        return hoje
+        placeholder = config.DATA_FALLBACK_PADRAO
+        print(f"  ⚠️ Data não encontrada — usando data-placeholder: {placeholder} (REVISAR MANUALMENTE)")
+        return placeholder
 
     def carregar_documentos(self):
-        """Carrega e ordena lista de documentos da pasta (ordem numérica pelo prefixo)"""
+        """Carrega e ordena lista de documentos da pasta (ordem numérica pelo
+        prefixo). Quando dois arquivos têm o MESMO número (conflito de
+        numeração), o desempate usa a ordem escolhida manualmente pelo
+        usuário na aba "Documentos" da GUI — ver doc_ordem.py."""
         if not os.path.exists(self.pasta_documentos):
             raise Exception(f"Pasta não encontrada: {self.pasta_documentos}")
 
+        cache_ordem = doc_ordem.carregar_ordem_manual(config.BASE_DIR)
+
         def chave_numerica(nome):
-            """Extrai o número do início do nome para ordenação correta: 1, 2, 3... 10, 11..."""
-            match = re.match(r'^(\d+)', nome)
-            return int(match.group(1)) if match else 9999
+            """Chave (numero, desempate) para ordenação correta: 1, 2, 3... 10, 11..."""
+            return doc_ordem.chave_ordenacao(nome, config.BASE_DIR, cache_ordem)
 
         arquivos = sorted(os.listdir(self.pasta_documentos), key=chave_numerica)
         todos_docs = [
@@ -753,7 +768,7 @@ class SEIAutomation:
         link_ne = self.capturar_link_documento_arvore(coord_ne)
 
         numero_ne = self.dados_contexto.get('ne_numero', '[NÚMERO]')
-        data_ne   = self.dados_contexto.get('ne_data',   '[DATA]')
+        data_ne   = self._data_fallback(self.dados_contexto.get('ne_data'))
 
         # Monta o template usando '<<<LINK>>>' como marcador temporário
         # para depois dividir o texto em antes/depois do link
@@ -936,7 +951,7 @@ class SEIAutomation:
         print("="*60)
 
         # Reutiliza os dados da NF já extraída (inclusive empresa do nome do arquivo)
-        data    = self.dados_contexto.get('nf_data',    '[DATA]')
+        data    = self._data_fallback(self.dados_contexto.get('nf_data'))
         numero  = self.dados_contexto.get('nf_numero',  '[NÚMERO]')
         empresa = self.dados_contexto.get('nf_empresa', '[EMPRESA]')
 
@@ -1157,6 +1172,8 @@ class SEIAutomation:
             dados  = pdf_utils.extrair_dados_guia_iss(pdf_path)
             data   = self._data_fallback(dados['data'])
             numero = dados['numero'] or '[NÚMERO]'
+        else:
+            data = self._data_fallback(data)
 
         # Empresa: do contexto se disponível, senão do nome do arquivo
         empresa = self.dados_contexto.get('nf_empresa', '')
@@ -1312,6 +1329,18 @@ class SEIAutomation:
 
         if not self.documentos:
             print("\n❌ Nenhum documento encontrado!")
+            return False
+
+        # ── Conflitos de numeração não resolvidos ───────────────────────
+        pendentes = doc_ordem.conflitos_pendentes(self.pasta_documentos, config.BASE_DIR)
+        if pendentes:
+            print("\n❌ CONFLITO DE NUMERAÇÃO NÃO RESOLVIDO:")
+            for grupo in pendentes:
+                print("   Mesmo número, ordem ambígua entre:")
+                for nome in grupo:
+                    print(f"     - {nome}")
+            print("\n   Abra a aba 'Documentos' na interface gráfica e defina")
+            print("   qual arquivo vem primeiro antes de executar.")
             return False
 
         # ── Detecta posição do Balancete para delimitar os ciclos ──────

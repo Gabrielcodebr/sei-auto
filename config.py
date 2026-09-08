@@ -131,6 +131,12 @@ TEMPOS = {
     'pos_click_salvar_doc04': 2.0,  # delay específico do despacho de NE
 }
 
+# Data usada em QUALQUER campo de data quando não foi possível extrair/
+# informar uma data real. Propositalmente "impossível" (não é a data de
+# hoje) para ficar óbvio na revisão manual que precisa ser corrigida.
+# O bot NUNCA deve inserir o texto literal "[DATA]" no SEI.
+DATA_FALLBACK_PADRAO = "01/01/1999"
+
 
 # =====================================================================
 # 5. CONFIGURAÇÃO DOS TIPOS DE DOCUMENTO

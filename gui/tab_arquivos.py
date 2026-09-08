@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import doc_ordem
+from gui.dialog_resolver_ordem import DialogResolverOrdem
 
 
 def _formatar_tamanho(bytes_: int) -> str:
@@ -71,6 +73,7 @@ class TabArquivos(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._grupos_dispensados = set()  # chaves de grupo com "agora não" nesta sessão
         self._build_ui()
         self.reload()
 
@@ -97,6 +100,23 @@ class TabArquivos(QWidget):
         self.lbl_count.setStyleSheet("color: #555;")
         layout.addWidget(self.lbl_count)
 
+        # Banner de conflito de numeração (some quando não há conflitos)
+        banner_row = QHBoxLayout()
+        self.banner_conflito = QLabel()
+        self.banner_conflito.setWordWrap(True)
+        self.banner_conflito.setStyleSheet(
+            "background-color: #fdecea; color: #611a15; padding: 8px; "
+            "border: 1px solid #f5c6cb; border-radius: 4px;"
+        )
+        self.banner_conflito.hide()
+        banner_row.addWidget(self.banner_conflito, 1)
+
+        self.btn_resolver = QPushButton("⚠️ Resolver ordem")
+        self.btn_resolver.clicked.connect(self._resolver_conflitos)
+        self.btn_resolver.hide()
+        banner_row.addWidget(self.btn_resolver)
+        layout.addLayout(banner_row)
+
         self.tbl = QTableWidget()
         self.tbl.setColumnCount(4)
         self.tbl.setHorizontalHeaderLabels(["Nº", "Arquivo", "Tipo detectado", "Tamanho"])
@@ -112,6 +132,8 @@ class TabArquivos(QWidget):
         if not os.path.isdir(path):
             self.lbl_count.setText("⚠️ Pasta não encontrada.")
             self.tbl.setRowCount(0)
+            self.banner_conflito.hide()
+            self.btn_resolver.hide()
             return
 
         def chave(nome):
@@ -123,6 +145,9 @@ class TabArquivos(QWidget):
             key=chave,
         )
 
+        pendentes = doc_ordem.conflitos_pendentes(path, config.BASE_DIR)
+        nomes_em_conflito = {nome for grupo in pendentes for nome in grupo}
+
         self.tbl.setRowCount(len(arquivos))
         for row, nome in enumerate(arquivos):
             numero = re.match(r"^(\d+)", nome)
@@ -131,12 +156,53 @@ class TabArquivos(QWidget):
             size = _formatar_tamanho(os.path.getsize(full))
             tipo = _identificar_tipo(nome)
 
-            self.tbl.setItem(row, 0, QTableWidgetItem(num_str))
-            self.tbl.setItem(row, 1, QTableWidgetItem(nome))
-            self.tbl.setItem(row, 2, QTableWidgetItem(tipo))
-            self.tbl.setItem(row, 3, QTableWidgetItem(size))
+            valores = (num_str, nome, tipo, size)
+            for col, valor in enumerate(valores):
+                item = QTableWidgetItem(valor)
+                if nome in nomes_em_conflito:
+                    item.setBackground(Qt.yellow)
+                    item.setToolTip("Número em conflito com outro arquivo — ordem ambígua")
+                self.tbl.setItem(row, col, item)
 
         self.lbl_count.setText(f"📄 {len(arquivos)} arquivo(s) encontrado(s)")
+
+        if not pendentes:
+            self.banner_conflito.hide()
+            self.btn_resolver.hide()
+            return
+
+        self.banner_conflito.setText(
+            f"⚠️ {len(pendentes)} conflito(s) de numeração encontrado(s): dois ou "
+            "mais arquivos com o mesmo número (destacados em amarelo). A ordem "
+            "entre eles é ambígua — resolva antes de executar."
+        )
+        self.banner_conflito.show()
+        self.btn_resolver.show()
+
+        novos = [g for g in pendentes if doc_ordem.chave_grupo(g) not in self._grupos_dispensados]
+        if novos:
+            resp = QMessageBox.warning(
+                self, "Conflito de numeração",
+                f"Encontrei {len(novos)} conflito(s) de numeração na pasta de "
+                "documentos: arquivos diferentes com o mesmo número, então a "
+                "ordem de processamento fica ambígua.\n\n"
+                "Quer decidir a ordem agora?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+            )
+            if resp == QMessageBox.Yes:
+                self._resolver_conflitos()
+                return  # _resolver_conflitos() já chama reload() de novo
+            for g in novos:
+                self._grupos_dispensados.add(doc_ordem.chave_grupo(g))
+
+    def _resolver_conflitos(self):
+        """Abre o diálogo 'Qual arquivo é primeiro?' para cada conflito pendente."""
+        path = config.DOCUMENTOS_DIR
+        pendentes = doc_ordem.conflitos_pendentes(path, config.BASE_DIR)
+        for grupo in pendentes:
+            dlg = DialogResolverOrdem(grupo, self)
+            dlg.exec()
+        self.reload()
 
     def _open_folder(self):
         path = config.DOCUMENTOS_DIR
