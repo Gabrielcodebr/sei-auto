@@ -163,14 +163,21 @@ def _empilhar_imagens_verticalmente(imagens):
     return resultado
 
 
-def processar_planilha_pesquisa_preco(pdf_path):
+def processar_planilha_pesquisa_preco(pdf_path, assinaturas=None):
     """
     Processa a Planilha de Pesquisa de Preço (Quadro Comparativo).
+
+    Args:
+        assinaturas: lista de (NOME_COMPLETO_MAIÚSCULO, CPF_COM_FORMATO).
+            Se None, usa config.ASSINATURAS_PLANILHA_PRECO quando existir
+            (compatibilidade); senão lista vazia. Desde a modularização
+            do pipeline, o valor normal vem do passo 'quadro_comparativo'
+            (processor_config['assinaturas']), não mais de config.py.
 
     Regras:
     - Renderiza todas as páginas do PDF.
     - Em cada página, procura por uma das assinaturas conhecidas
-      (nome + CPF) — ver config.ASSINATURAS_PLANILHA_PRECO.
+      (nome + CPF).
     - Quando encontra a assinatura em uma página, mantém tudo até o
       final dessa linha e descarta o restante (e todas as páginas
       seguintes — útil quando o sistema gera páginas vazias extras).
@@ -179,6 +186,9 @@ def processar_planilha_pesquisa_preco(pdf_path):
     - Se a assinatura não for encontrada em nenhuma página, retorna
       todas as páginas concatenadas (fallback seguro).
     """
+    if assinaturas is None:
+        assinaturas = getattr(config, "ASSINATURAS_PLANILHA_PRECO", [])
+
     try:
         print("  📄 Processando Planilha de Pesquisa de Preço (multi-página)...")
 
@@ -207,7 +217,7 @@ def processar_planilha_pesquisa_preco(pdf_path):
             coords_cpf  = None
             assinante   = None
 
-            for nome, cpf in config.ASSINATURAS_PLANILHA_PRECO:
+            for nome, cpf in assinaturas:
                 c_cpf  = ocr_utils.localizar_texto_na_imagem(imagem, cpf)
                 c_nome = ocr_utils.localizar_texto_na_imagem(imagem, nome)
                 if c_cpf or c_nome:

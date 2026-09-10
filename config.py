@@ -18,26 +18,76 @@ Seções:
 """
 
 import os
+import shutil
+import sys
 
 
 # =====================================================================
 # 1. CAMINHOS E AMBIENTE
 # ---------------------------------------------------------------------
-# EDITE AQUI se mudar a instalação do Tesseract ou a pasta dos
-# documentos do processo.
+# Estes caminhos funcionam nos DOIS modos:
+#   - Rodando pelo .bat / "python main_gui.py" (modo desenvolvimento)
+#   - Rodando pelo SeiAuto.exe (modo empacotado / distribuível)
+#
+# Em ambos, BASE_DIR é a pasta onde o usuário enxerga o app, e é lá
+# que ficam documentos/, pipeline_config.json, ordem_manual.json, etc.
 # =====================================================================
 
-# Caminho do executável do Tesseract OCR
-TESSERACT_PATH = r"C:\Users\Gabriel Fatec Itu\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+def _base_dir():
+    """Pasta raiz do app.
 
-# Caminho da pasta bin do Poppler (não é mais necessário — usamos PyMuPDF)
-# POPPLER_PATH = r"C:\Programas\poppler-25.12.0\Library\bin"
+    Quando empacotado (.exe via PyInstaller), aponta para a pasta onde
+    está o executável — que é onde o usuário coloca os arquivos e edita
+    configs. NÃO usamos sys._MEIPASS aqui de propósito: aquela pasta é
+    temporária e some quando o exe fecha.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _tesseract_path():
+    """Localiza o tesseract.exe tentando, em ordem:
+
+      1. Embutido ao lado do exe/script (Tesseract-OCR/tesseract.exe)
+         — usado quando distribuímos o Tesseract junto.
+      2. Instalação por usuário (%LOCALAPPDATA%\\Programs\\Tesseract-OCR).
+      3. Instalação global (C:\\Program Files\\Tesseract-OCR).
+      4. No PATH do sistema (retorna 'tesseract' e deixa o SO achar).
+    """
+    base = _base_dir()
+    candidatos = [
+        os.path.join(base, "Tesseract-OCR", "tesseract.exe"),
+        os.path.join(
+            os.environ.get("LOCALAPPDATA", ""),
+            "Programs", "Tesseract-OCR", "tesseract.exe",
+        ),
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+    for c in candidatos:
+        if c and os.path.exists(c):
+            return c
+    return "tesseract"  # confia no PATH
+
 
 # Pasta raiz do projeto (calculada automaticamente, não mexer)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = _base_dir()
+
+# Caminho do executável do Tesseract OCR (detectado automaticamente)
+TESSERACT_PATH = _tesseract_path()
 
 # Pasta onde estão os documentos numerados do processo
 DOCUMENTOS_DIR = os.path.join(BASE_DIR, "documentos")
+
+# Garante que a pasta de documentos exista (na primeira execução do exe
+# o usuário ainda não a criou — queremos que ela já apareça pra ele).
+try:
+    os.makedirs(DOCUMENTOS_DIR, exist_ok=True)
+except OSError:
+    # Não é fatal aqui — a validação abaixo mostra a mensagem certa, e a
+    # GUI avisa quando o usuário tentar adicionar arquivos.
+    pass
 
 
 # =====================================================================
@@ -139,144 +189,33 @@ DATA_FALLBACK_PADRAO = "01/01/1999"
 
 
 # =====================================================================
-# 5. CONFIGURAÇÃO DOS TIPOS DE DOCUMENTO
+# 5. TIPOS DE DOCUMENTO, ASSINATURAS E TEMPLATE DE DESPACHO
 # ---------------------------------------------------------------------
-# EDITE AQUI se o SEI mudar o NOME de algum tipo de documento ou se
-# quiser ajustar a descrição/nome na árvore que o bot preenche.
-#
-# Campos possíveis em cada entrada:
-#   busca         - texto digitado na barra de busca de tipos
-#   descricao     - vai no campo "Descrição" do formulário interno
-#   nome_arvore   - vai no campo "Nome na Árvore"
-#   tipo_externo  - vai no dropdown de tipo de documento externo
+# Migraram para pipeline.py / pipeline_config.json (aba "Pipeline de
+# Documentos" na GUI). Cada tipo de documento agora é um "passo" do
+# pipeline, com categoria (fixo inicial / ciclo / fixo final), ordem
+# de execução, detecção pelo nome do arquivo, e se é um passo "ativo"
+# ou não — tudo editável sem tocar em código.
 # =====================================================================
-
-DOCUMENTOS = {
-    'capa': {
-        'busca':       'Informacao',
-        'descricao':   'Capa padrão imprensa oficial',
-        'nome_arvore': 'Capa',
-    },
-    'solicitacao': {
-        'busca':       'Solicitacao',
-        'descricao':   'Solicitação de adiantamento',
-        'nome_arvore': 'adiantamento',
-    },
-    'memorando_justificativa': {
-        'busca':       'Memorando',
-        'descricao':   'Memorando/Justificativa',
-        'nome_arvore': 'Justificativa',
-    },
-    'nota_empenho': {
-        'busca':        'Externo',
-        'tipo_externo': 'Nota de empenho',
-    },
-    'despacho_aprovacao_ne': {
-        'busca':       'Despacho',
-        'descricao':   'Aprovação de NE',
-        'nome_arvore': 'Aprovação de NE',
-    },
-    'ordem_bancaria': {
-        'busca':        'Externo',
-        'tipo_externo': 'Ordem bancaria',
-    },
-    'quadro_comparativo': {
-        'busca':       'Planilha',
-        'descricao':   'Quadro comparativo',
-        'nome_arvore': 'Quadro comparativo',
-    },
-    'nota_fiscal': {
-        'busca':        'Externo',
-        'tipo_externo': 'Nota Fiscal',
-    },
-    'comprovante_fiscal': {
-        'busca':        'Externo',
-        'tipo_externo': 'Comprovante',
-    },
-    'declaracao_recebimento': {
-        'busca':     'Declaracao',
-        'descricao': 'Declaração de Recebimento, Conformidade e Destinação',
-        # nome_arvore aqui é dinâmico: vem do nome da empresa do ciclo
-    },
-    'consulta_optante': {
-        'busca':        'Externo',
-        'tipo_externo': 'Consulta',
-    },
-    'cnpj': {
-        'busca':        'Externo',
-        'tipo_externo': 'Cadastro Nacional De Pessoa Jurídica',
-    },
-    'guia_iss': {
-        'busca':        'Externo',
-        'tipo_externo': 'Guia de recolhimento',
-    },
-    'comprovante_iss': {
-        'busca':        'Externo',
-        'tipo_externo': 'Comprovante',
-    },
-    'balancete': {
-        'busca':       'Balancete',
-        'descricao':   '',
-        'nome_arvore': '',
-    },
-    'extrato_bancario': {
-        'busca':            'Externo',
-        'tipo_externo':     'Extrato',
-        'nome_arvore_fixo': 'Bancário',
-    },
-    'conciliacao_contabil': {
-        'busca':       'Conciliacao',
-        'descricao':   'Conciliação bancária',
-        'nome_arvore': 'Conciliação bancária',
-    },
-    'declaracao_encerramento': {
-        'busca':       'Declaracao',
-        'descricao':   'Declaração de encerramento',
-        'nome_arvore': 'Encerramento',
-    },
-}
 
 
 # =====================================================================
-# 6. ASSINATURAS DA PLANILHA DE PESQUISA DE PREÇO
-# ---------------------------------------------------------------------
-# EDITE AQUI para adicionar/remover assinantes. O bot procura essas
-# assinaturas na planilha e corta tudo que vier depois delas (útil pra
-# remover páginas vazias geradas pelo sistema).
-# Formato: (NOME_COMPLETO_MAIÚSCULO, CPF_COM_FORMATO)
-# =====================================================================
-
-ASSINATURAS_PLANILHA_PRECO = [
-    ('RODRIGO BARBIERI', '230599118-51'),  # DMPP
-    ('ROSANA METZNER',   '066313968-67'),  # UFIEC
-]
-
-
-# =====================================================================
-# 7. TEMPLATE DO DESPACHO DE APROVAÇÃO
-# ---------------------------------------------------------------------
-# EDITE AQUI para mudar o texto do despacho. Os marcadores
-# {numero_ne}, {link_ne} e {data_ne} são preenchidos automaticamente.
-# =====================================================================
-
-DESPACHO_APROVACAO_TEMPLATE = """Aprova-se Nota de Empenho {numero_ne}, documento: {link_ne}
-
-São Paulo, {data_ne}
-
-WILLIAN DE OLIVEIRA SALAZAR
-Coordenador de Departamento de Orçamento e Finanças – COF"""
-
-
-# =====================================================================
-# 8. VALIDAÇÃO
+# 6. VALIDAÇÃO
 # =====================================================================
 
 def validar_configuracoes():
     """Valida se as configurações estão corretas"""
     erros = []
 
-    # Verifica Tesseract
-    if not os.path.exists(TESSERACT_PATH):
+    # Verifica Tesseract. Se veio do PATH, checa via shutil.which em vez
+    # de os.path.exists (que só funciona com caminho absoluto).
+    if TESSERACT_PATH == "tesseract":
+        if shutil.which("tesseract") is None:
+            erros.append(
+                "Tesseract não encontrado. Instale-o ou coloque o "
+                "tesseract.exe ao lado do programa (pasta 'Tesseract-OCR')."
+            )
+    elif not os.path.exists(TESSERACT_PATH):
         erros.append(f"Tesseract não encontrado em: {TESSERACT_PATH}")
 
     # Verifica pasta de documentos
@@ -299,7 +238,7 @@ if __name__ == "__main__":
 
 
 # =====================================================================
-# 9. OVERRIDES DO USUÁRIO (via GUI)
+# 7. OVERRIDES DO USUÁRIO (via GUI)
 # ---------------------------------------------------------------------
 # Se existir user_config.json na raiz do projeto, seus valores
 # sobrescrevem os defaults acima. Criado e editado pela interface

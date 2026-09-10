@@ -54,15 +54,14 @@ OVERRIDABLE_KEYS = [
     "WAIT_FOR_ELEMENT",
     "MAX_UPLOAD_WAIT",
     "TEMPOS",
-    # Documentos & textos
-    "DOCUMENTOS",
-    "ASSINATURAS_PLANILHA_PRECO",
-    "DESPACHO_APROVACAO_TEMPLATE",
+    # NOTA: "DOCUMENTOS", "ASSINATURAS_PLANILHA_PRECO" e
+    # "DESPACHO_APROVACAO_TEMPLATE" migraram para pipeline.py /
+    # pipeline_config.json (aba "Pipeline de Documentos" na GUI).
 ]
 
 # Chaves cujo valor é um dict de dicts (precisa merge por sub-chave,
 # não substituição total) para não perder campos não editados na GUI.
-_DEEP_MERGE_KEYS = {"DOCUMENTOS", "TEMPOS"}
+_DEEP_MERGE_KEYS = {"TEMPOS"}
 
 
 def _load_json():
@@ -82,8 +81,6 @@ def _normalize_value(key, value):
     coord_keys = {k for k in OVERRIDABLE_KEYS if k.startswith("COORD_") or k == "REGIAO_POPUP_SIMILAR"}
     if key in coord_keys and isinstance(value, list):
         return tuple(value)
-    if key == "ASSINATURAS_PLANILHA_PRECO" and isinstance(value, list):
-        return [tuple(item) if isinstance(item, list) else item for item in value]
     return value
 
 

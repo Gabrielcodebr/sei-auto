@@ -31,7 +31,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.tab_executar = TabExecutar()
-        self.tab_arquivos = TabArquivos()
+        # TabArquivos precisa saber qual tipo de processo (DMPP/UFIEC) está
+        # selecionado na aba Executar pra classificar os arquivos certo.
+        self.tab_arquivos = TabArquivos(get_tipo_processo=self.tab_executar.tipo_processo_selecionado)
         self.tab_config = TabConfiguracoes()
         self.tab_sobre = TabSobre()
 
@@ -48,6 +50,12 @@ class MainWindow(QMainWindow):
         # Recarrega lista de documentos quando trocar para aba correspondente
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
+        # Se o tipo de processo mudar enquanto a aba Documentos estiver
+        # visível, reclassifica os arquivos na hora (em vez de esperar
+        # trocar de aba e voltar).
+        self.tab_executar.rb_dmpp.toggled.connect(self._on_tipo_processo_changed)
+        self.tab_executar.rb_ufiec.toggled.connect(self._on_tipo_processo_changed)
+
         # Conecta signal do worker para recarregar lista de docs no fim
         self.tab_executar.status_changed.connect(self.statusBar().showMessage)
 
@@ -59,6 +67,10 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         if self.tabs.widget(index) is self.tab_arquivos:
+            self.tab_arquivos.reload()
+
+    def _on_tipo_processo_changed(self, *_):
+        if self.tabs.currentWidget() is self.tab_arquivos:
             self.tab_arquivos.reload()
 
     def _validate_on_startup(self):

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 import config
 import doc_ordem
+import pipeline
 from gui.automation_worker import AutomationWorker
 from gui.floating_stop import FloatingStopWindow
 from gui.stop_controller import stop_controller
@@ -183,8 +184,11 @@ class TabExecutar(QWidget):
 
     # ---------------- Lógica ----------------
 
+    def tipo_processo_selecionado(self) -> str:
+        return "UFIEC" if self.rb_ufiec.isChecked() else "DMPP"
+
     def _get_opcoes(self) -> dict:
-        tipo = "UFIEC" if self.rb_ufiec.isChecked() else "DMPP"
+        tipo = self.tipo_processo_selecionado()
         if self.rb_inicio.isChecked():
             return {
                 "tipo_processo": tipo,
@@ -237,6 +241,40 @@ class TabExecutar(QWidget):
                 "primeiro antes de iniciar."
             )
             return
+
+        # Bloqueia início se houver conflito de numeração não resolvido
+        # (mesmo número em 2+ arquivos — ver doc_ordem.py / aba Documentos)
+        pendentes = doc_ordem.conflitos_pendentes(config.DOCUMENTOS_DIR, config.BASE_DIR)
+        if pendentes:
+            QMessageBox.warning(
+                self, "Conflito de numeração pendente",
+                f"Há {len(pendentes)} conflito(s) de numeração não resolvido(s) "
+                "na pasta de documentos (arquivos diferentes com o mesmo "
+                "número). Vá até a aba 'Documentos' e defina qual arquivo vem "
+                "primeiro antes de iniciar."
+            )
+            return
+
+        # Bloqueia início se houver arquivo que nenhum tipo ATIVO reconhece
+        # (evita que um arquivo importante seja silenciosamente ignorado)
+        tipo_processo = self.tipo_processo_selecionado()
+        try:
+            faltantes = pipeline.nao_classificados(config.DOCUMENTOS_DIR, config.BASE_DIR, tipo_processo)
+        except Exception:
+            faltantes = []
+        if faltantes:
+            lista = "\n".join(f"  - {n}" for n in faltantes)
+            QMessageBox.warning(
+                self, "Arquivo(s) não reconhecido(s)",
+                f"{len(faltantes)} arquivo(s) não correspondem a nenhum tipo "
+                f"ativo do pipeline para o processo '{tipo_processo}':\n\n{lista}\n\n"
+                "Eles serão IGNORADOS na execução. Confira na aba 'Documentos' "
+                "se isso é esperado (ex: arquivo de outro tipo de processo) ou "
+                "se falta cadastrar/ativar um tipo em Configurações → Pipeline "
+                "de Documentos."
+            )
+            # aviso, não bloqueio — o usuário pode confirmar que é esperado
+            # (ex: um arquivo do memorando presente num processo DMPP)
 
         # Validação específica do modo "a partir do despacho"
         if self.rb_despacho.isChecked() and not self.edit_despacho_numero.text().strip():

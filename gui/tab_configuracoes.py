@@ -6,8 +6,9 @@ Sub-abas:
 - Coordenadas (com captura assistida)
 - Tempos
 - Caminhos & OCR
-- Tipos de Documento (tabela editável)
-- Textos & Templates (despacho + assinaturas)
+- Pipeline de Documentos (arrastar para reordenar, ativar/desativar,
+  adicionar/remover/editar tipos — ver pipeline.py)
+- Textos & Templates (assinaturas da planilha de preço)
 """
 
 import os
@@ -18,12 +19,14 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QScrollArea, QGroupBox,
     QLabel, QLineEdit, QPushButton, QFileDialog, QSpinBox, QDoubleSpinBox,
     QPlainTextEdit, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
-    QMessageBox, QFormLayout
+    QMessageBox, QFormLayout, QAbstractItemView
 )
 
 import config
+import pipeline
 from gui import config_manager
 from gui.coord_capture import CoordinateField, RegionField
+from gui.dialog_editar_passo import DialogEditarPasso
 
 
 # Agrupamento visual das coordenadas (título, lista de (chave, label))
@@ -33,10 +36,6 @@ COORD_GROUPS = [
         ("COORD_BARRA_PESQUISA",   "Barra de pesquisa de tipo"),
         ("COORD_BTN_SALVAR_FORM",  "Botão Salvar do formulário"),
         ("COORD_AREA_EDICAO",      "Centro do editor (colar)"),
-    ]),
-    ("Árvore do processo", [
-        ("COORD_ICONE_NE_ARVORE_DMPP",  "Ícone da NE na árvore (DMPP)"),
-        ("COORD_ICONE_NE_ARVORE_UFIEC", "Ícone da NE na árvore (UFIEC)"),
     ]),
     ("Formulário INTERNO", [
         ("COORD_CAMPO_DESCRICAO_INTERNO",   "Campo Descrição"),
@@ -59,6 +58,10 @@ COORD_GROUPS = [
         ("COORD_REFOCO_EDITOR",    "Refocar editor ao colar link"),
     ]),
 ]
+# NOTA: as coordenadas dos ícones de despachos gerados na árvore (ex:
+# despacho de aprovação de NE) NÃO ficam aqui — elas vivem dentro do
+# próprio passo do pipeline (aba "Pipeline de Documentos"), porque
+# cada despacho gerado tem sua própria coordenada por tipo de processo.
 
 TEMPO_LABELS = {
     "pos_pesquisa_externo":   "Após pesquisar 'Externo'",
@@ -67,16 +70,23 @@ TEMPO_LABELS = {
     "recarregar_tela":        "Entre documentos (recarregar tela)",
     "aguardar_form_carregar": "Aguardar formulário interno abrir",
     "pos_anexo_upload":       "Após upload de arquivo externo",
-    "pos_click_salvar_doc04": "Delay do despacho NE",
+    "pos_click_salvar_doc04": "Delay pós-salvar de despachos gerados",
+}
+
+CATEGORIA_LABEL = {
+    "fixo_inicial": "Fixo (início)",
+    "ciclo": "Ciclo (por Nota Fiscal)",
+    "fixo_final": "Fixo (fim)",
 }
 
 
 class TabConfiguracoes(QWidget):
-    """Editor visual de config.py com persistência em user_config.json."""
+    """Editor visual de config.py + pipeline.py, com persistência em disco."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._dirty = False
+        self._passos = []  # lista de dicts do pipeline em edição
         self._build_ui()
         self._load_values()
 
@@ -90,10 +100,9 @@ class TabConfiguracoes(QWidget):
         self.sub_tabs.addTab(self._build_tab_coordenadas(), "📍 Coordenadas")
         self.sub_tabs.addTab(self._build_tab_tempos(), "⏱ Tempos")
         self.sub_tabs.addTab(self._build_tab_caminhos(), "📂 Caminhos & OCR")
-        self.sub_tabs.addTab(self._build_tab_documentos(), "📄 Tipos de Documento")
+        self.sub_tabs.addTab(self._build_tab_pipeline(), "🧩 Pipeline de Documentos")
         self.sub_tabs.addTab(self._build_tab_textos(), "📝 Textos & Templates")
 
-        # Rodapé com botões Salvar / Restaurar / Abrir JSON
         footer = QHBoxLayout()
         footer.addStretch(1)
 
@@ -101,8 +110,8 @@ class TabConfiguracoes(QWidget):
         self.lbl_status_config.setStyleSheet("color: #888;")
         footer.addWidget(self.lbl_status_config)
 
-        self.btn_abrir_json = QPushButton("📁 Abrir JSON")
-        self.btn_abrir_json.clicked.connect(self._open_json)
+        self.btn_abrir_json = QPushButton("📁 Abrir pasta de configs")
+        self.btn_abrir_json.clicked.connect(self._open_config_folder)
         footer.addWidget(self.btn_abrir_json)
 
         self.btn_restaurar = QPushButton("↺ Restaurar padrões")
@@ -150,7 +159,6 @@ class TabConfiguracoes(QWidget):
                 gv.addWidget(field)
             layout.addWidget(gb)
 
-        # Região do popup (4 valores)
         gb_region = QGroupBox("Região do popup 'documento similar'")
         gvr = QVBoxLayout(gb_region)
         self.region_field = RegionField("Região do popup (x, y, largura, altura)")
@@ -228,7 +236,6 @@ class TabConfiguracoes(QWidget):
         gb_paths = QGroupBox("Caminhos")
         form_p = QFormLayout(gb_paths)
 
-        # Tesseract
         h1 = QHBoxLayout()
         self.edit_tesseract = QLineEdit()
         self.edit_tesseract.textChanged.connect(self._mark_dirty)
@@ -238,7 +245,6 @@ class TabConfiguracoes(QWidget):
         h1.addWidget(btn_tes)
         form_p.addRow("Tesseract OCR:", h1)
 
-        # Documentos
         h2 = QHBoxLayout()
         self.edit_docs = QLineEdit()
         self.edit_docs.textChanged.connect(self._mark_dirty)
@@ -279,30 +285,158 @@ class TabConfiguracoes(QWidget):
         layout.addStretch(1)
         return content
 
-    # ---------- Sub-aba Tipos de Documento ----------
-    def _build_tab_documentos(self) -> QWidget:
+    # ---------- Sub-aba Pipeline de Documentos ----------
+    def _build_tab_pipeline(self) -> QWidget:
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(6, 6, 6, 6)
 
         info = QLabel(
-            "Edite os termos de busca e campos de cada tipo de documento. "
-            "⚠️ Não altere a coluna <b>chave</b> (é usada internamente no código)."
+            "Cada linha é um tipo de documento. Arraste para reordenar a "
+            "execução DENTRO de cada seção. Desmarque 'Ativo' para pular um "
+            "tipo sem apagar a configuração. Passos com 🔒 têm lógica própria "
+            "de extração de dados e não podem ser removidos, só desativados."
         )
         info.setWordWrap(True)
         info.setStyleSheet("background-color: #f8d7da; padding: 8px; border-radius: 4px;")
         layout.addWidget(info)
 
-        self.tbl_docs = QTableWidget()
-        self.tbl_docs.setColumnCount(6)
-        self.tbl_docs.setHorizontalHeaderLabels([
-            "chave", "busca", "descricao", "nome_arvore", "tipo_externo", "nome_arvore_fixo"
-        ])
-        self.tbl_docs.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_docs.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_docs.itemChanged.connect(lambda *_: self._mark_dirty())
-        layout.addWidget(self.tbl_docs, 1)
+        btn_row = QHBoxLayout()
+        btn_add = QPushButton("➕ Novo tipo de documento")
+        btn_add.clicked.connect(self._adicionar_passo)
+        btn_row.addWidget(btn_add)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        self.tabelas_pipeline: dict[str, QTableWidget] = {}
+        for categoria, label in CATEGORIA_LABEL.items():
+            gb = QGroupBox(label)
+            gv = QVBoxLayout(gb)
+            tbl = QTableWidget()
+            tbl.setColumnCount(5)
+            tbl.setHorizontalHeaderLabels(["Ativo", "Id", "Origem", "Aplica-se a", ""])
+            tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            tbl.verticalHeader().setVisible(False)
+            tbl.setSelectionBehavior(QTableWidget.SelectRows)
+            tbl.setDragDropMode(QAbstractItemView.InternalMove)
+            tbl.setDragDropOverwriteMode(False)
+            tbl.setDropIndicatorShown(True)
+            tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+            tbl.model().rowsMoved.connect(lambda *_, cat=categoria: self._reordenar_apos_drag(cat))
+            tbl.cellDoubleClicked.connect(lambda r, c, cat=categoria: self._editar_passo(cat, r))
+            self.tabelas_pipeline[categoria] = tbl
+            gv.addWidget(tbl)
+            layout.addWidget(gb)
+
         return content
+
+    def _passos_da_categoria(self, categoria):
+        return sorted(
+            [p for p in self._passos if p["categoria"] == categoria],
+            key=lambda p: p.get("ordem", 0),
+        )
+
+    def _repovoar_tabelas_pipeline(self):
+        for categoria, tbl in self.tabelas_pipeline.items():
+            tbl.blockSignals(True)
+            passos = self._passos_da_categoria(categoria)
+            tbl.setRowCount(len(passos))
+            for row, p in enumerate(passos):
+                self._preencher_linha_pipeline(tbl, row, p)
+            tbl.blockSignals(False)
+
+    def _preencher_linha_pipeline(self, tbl, row, p):
+        from PySide6.QtWidgets import QCheckBox
+
+        chk = QCheckBox()
+        chk.setChecked(p.get("ativo", True))
+        chk.toggled.connect(lambda val, pid=p["id"]: self._toggle_ativo(pid, val))
+        cell_wrap = QWidget()
+        cw_layout = QHBoxLayout(cell_wrap)
+        cw_layout.setContentsMargins(0, 0, 0, 0)
+        cw_layout.addWidget(chk)
+        cw_layout.addStretch(1)
+        tbl.setCellWidget(row, 0, cell_wrap)
+
+        prefixo = "🔒 " if p.get("processor") not in (
+            None, "generico_imagem_pdf", "generico_upload_externo", "despacho_gerado"
+        ) else ""
+        ancora = " ⚓" if p.get("ancora_ciclo") else ""
+        item_id = QTableWidgetItem(f"{prefixo}{p['id']}{ancora}")
+        item_id.setData(Qt.UserRole, p["id"])
+        tbl.setItem(row, 1, item_id)
+
+        origem_label = "Gerado" if p.get("origem") == "gerado" else ("Interno" if p.get("modo") == "interno" else "Externo")
+        tbl.setItem(row, 2, QTableWidgetItem(origem_label))
+
+        aplica = "/".join(p.get("aplica_a", []))
+        tbl.setItem(row, 3, QTableWidgetItem(aplica))
+
+        btn_remover = QPushButton("🗑")
+        btn_remover.setToolTip("Remover este tipo de documento")
+        removivel = p.get("processor") in (None, "generico_imagem_pdf", "generico_upload_externo", "despacho_gerado")
+        btn_remover.setEnabled(removivel)
+        btn_remover.clicked.connect(lambda _, pid=p["id"]: self._remover_passo(pid))
+        tbl.setCellWidget(row, 4, btn_remover)
+
+    def _toggle_ativo(self, passo_id, valor):
+        for p in self._passos:
+            if p["id"] == passo_id:
+                p["ativo"] = valor
+        self._mark_dirty()
+
+    def _reordenar_apos_drag(self, categoria):
+        tbl = self.tabelas_pipeline[categoria]
+        novos_ids_em_ordem = []
+        for row in range(tbl.rowCount()):
+            item = tbl.item(row, 1)
+            if item:
+                novos_ids_em_ordem.append(item.data(Qt.UserRole))
+
+        passo_por_id = {p["id"]: p for p in self._passos}
+        for nova_ordem, pid in enumerate(novos_ids_em_ordem, start=1):
+            if pid in passo_por_id:
+                passo_por_id[pid]["ordem"] = nova_ordem * 10
+
+        self._mark_dirty()
+        self._repovoar_tabelas_pipeline()
+
+    def _adicionar_passo(self):
+        dlg = DialogEditarPasso(passo=None, passos_existentes=self._passos, parent=self)
+        if dlg.exec():
+            self._passos.append(dlg.passo)
+            self._mark_dirty()
+            self._repovoar_tabelas_pipeline()
+
+    def _editar_passo(self, categoria, row):
+        passos = self._passos_da_categoria(categoria)
+        if row >= len(passos):
+            return
+        passo = passos[row]
+        dlg = DialogEditarPasso(passo=passo, passos_existentes=self._passos, parent=self)
+        if dlg.exec():
+            for i, p in enumerate(self._passos):
+                if p["id"] == passo["id"]:
+                    self._passos[i] = dlg.passo
+                    break
+            self._mark_dirty()
+            self._repovoar_tabelas_pipeline()
+
+    def _remover_passo(self, passo_id):
+        passo = next((p for p in self._passos if p["id"] == passo_id), None)
+        if not passo:
+            return
+        resp = QMessageBox.question(
+            self, "Remover tipo de documento",
+            f"Remover o passo '{passo_id}' do pipeline? Isso não afeta arquivos já "
+            "existentes na pasta — só faz o bot parar de procurar por esse tipo.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if resp != QMessageBox.Yes:
+            return
+        self._passos = [p for p in self._passos if p["id"] != passo_id]
+        self._mark_dirty()
+        self._repovoar_tabelas_pipeline()
 
     # ---------- Sub-aba Textos ----------
     def _build_tab_textos(self) -> QWidget:
@@ -310,26 +444,22 @@ class TabConfiguracoes(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        gb_desp = QGroupBox("Template do despacho de aprovação de NE")
-        gd = QVBoxLayout(gb_desp)
         info = QLabel(
-            "Placeholders disponíveis: "
-            "<code>{numero_ne}</code>, <code>{link_ne}</code>, <code>{data_ne}</code>"
+            "O template do despacho de aprovação de NE e de qualquer outro "
+            "documento 'gerado pelo bot' agora são editados na aba <b>🧩 Pipeline "
+            "de Documentos</b> (dê duplo clique no passo)."
         )
-        info.setStyleSheet("color: #555;")
-        gd.addWidget(info)
-
-        self.txt_despacho = QPlainTextEdit()
-        self.txt_despacho.setMinimumHeight(140)
-        self.txt_despacho.textChanged.connect(self._mark_dirty)
-        gd.addWidget(self.txt_despacho)
-        layout.addWidget(gb_desp)
+        info.setWordWrap(True)
+        info.setStyleSheet("background-color: #d1ecf1; padding: 8px; border-radius: 4px;")
+        layout.addWidget(info)
 
         gb_ass = QGroupBox("Assinaturas da Planilha de Pesquisa de Preço")
         ga = QVBoxLayout(gb_ass)
         info2 = QLabel(
-            "O bot corta as páginas da planilha após encontrar uma destas assinaturas."
+            "O bot corta as páginas do Quadro Comparativo após encontrar uma "
+            "destas assinaturas. Vale para o passo 'quadro_comparativo' do pipeline."
         )
+        info2.setWordWrap(True)
         info2.setStyleSheet("color: #555;")
         ga.addWidget(info2)
 
@@ -397,16 +527,13 @@ class TabConfiguracoes(QWidget):
     def _load_values(self):
         data = config_manager.get_current_config()
 
-        # Coordenadas simples
         for key, field in self.coord_fields.items():
             if key in data:
                 field.set_value(data[key])
 
-        # Região
         if "REGIAO_POPUP_SIMILAR" in data:
             self.region_field.set_value(data["REGIAO_POPUP_SIMILAR"])
 
-        # Tempos
         self.spin_pause.setValue(float(data.get("PAUSE_BETWEEN_ACTIONS", 0.5)))
         self.spin_wait.setValue(float(data.get("WAIT_FOR_ELEMENT", 1.0)))
         self.spin_upload.setValue(int(data.get("MAX_UPLOAD_WAIT", 10)))
@@ -415,7 +542,6 @@ class TabConfiguracoes(QWidget):
         for key, spin in self.tempo_spins.items():
             spin.setValue(float(tempos.get(key, 0.0)))
 
-        # Caminhos & OCR
         self.edit_tesseract.setText(data.get("TESSERACT_PATH", ""))
         self.edit_docs.setText(data.get("DOCUMENTOS_DIR", ""))
         self.combo_lang.setCurrentText(data.get("OCR_LANGUAGE", "por"))
@@ -423,17 +549,14 @@ class TabConfiguracoes(QWidget):
         self.spin_dpi.setValue(int(data.get("PDF_DPI", 200)))
         self.combo_format.setCurrentText(data.get("IMAGE_FORMAT", "PNG"))
 
-        # Tipos de documento
-        self.tbl_docs.blockSignals(True)
-        docs = data.get("DOCUMENTOS", {})
-        self.tbl_docs.setRowCount(len(docs))
-        for row, (chave, info) in enumerate(docs.items()):
-            self._set_doc_row(row, chave, info)
-        self.tbl_docs.blockSignals(False)
+        # Pipeline
+        self._passos = [dict(p) for p in pipeline.carregar_pipeline(config.BASE_DIR)]
+        self._repovoar_tabelas_pipeline()
 
-        # Assinaturas
+        # Assinaturas (vivem dentro do passo 'quadro_comparativo')
+        quadro = next((p for p in self._passos if p["id"] == "quadro_comparativo"), None)
+        ass = ((quadro or {}).get("processor_config") or {}).get("assinaturas", [])
         self.tbl_ass.blockSignals(True)
-        ass = data.get("ASSINATURAS_PLANILHA_PRECO", [])
         self.tbl_ass.setRowCount(len(ass))
         for row, item in enumerate(ass):
             nome, cpf = (item[0], item[1]) if len(item) >= 2 else ("", "")
@@ -441,50 +564,26 @@ class TabConfiguracoes(QWidget):
             self.tbl_ass.setItem(row, 1, QTableWidgetItem(str(cpf)))
         self.tbl_ass.blockSignals(False)
 
-        # Template
-        self.txt_despacho.blockSignals(True)
-        self.txt_despacho.setPlainText(data.get("DESPACHO_APROVACAO_TEMPLATE", ""))
-        self.txt_despacho.blockSignals(False)
-
-        if config_manager.user_config_exists():
-            self.lbl_status_config.setText("✓ carregado de user_config.json")
+        if config_manager.user_config_exists() or pipeline.pipeline_customizado(config.BASE_DIR):
+            self.lbl_status_config.setText("✓ configuração carregada")
             self.lbl_status_config.setStyleSheet("color: #27ae60;")
         else:
             self.lbl_status_config.setText("(usando defaults)")
             self.lbl_status_config.setStyleSheet("color: #888;")
         self._dirty = False
 
-    def _set_doc_row(self, row, chave, info):
-        cells = [
-            chave,
-            info.get("busca", ""),
-            info.get("descricao", ""),
-            info.get("nome_arvore", ""),
-            info.get("tipo_externo", ""),
-            info.get("nome_arvore_fixo", ""),
-        ]
-        for col, text in enumerate(cells):
-            item = QTableWidgetItem(str(text))
-            if col == 0:
-                # Chave não-editável
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-            self.tbl_docs.setItem(row, col, item)
-
     def _collect_values(self) -> dict:
         out = {}
 
-        # Coordenadas
         for key, field in self.coord_fields.items():
             out[key] = field.get_value()
         out["REGIAO_POPUP_SIMILAR"] = self.region_field.get_value()
 
-        # Tempos
         out["PAUSE_BETWEEN_ACTIONS"] = self.spin_pause.value()
         out["WAIT_FOR_ELEMENT"] = self.spin_wait.value()
         out["MAX_UPLOAD_WAIT"] = self.spin_upload.value()
         out["TEMPOS"] = {k: s.value() for k, s in self.tempo_spins.items()}
 
-        # Caminhos & OCR
         out["TESSERACT_PATH"] = self.edit_tesseract.text()
         out["DOCUMENTOS_DIR"] = self.edit_docs.text()
         out["OCR_LANGUAGE"] = self.combo_lang.currentText()
@@ -492,28 +591,9 @@ class TabConfiguracoes(QWidget):
         out["PDF_DPI"] = self.spin_dpi.value()
         out["IMAGE_FORMAT"] = self.combo_format.currentText()
 
-        # Tipos de documento
-        docs = {}
-        for row in range(self.tbl_docs.rowCount()):
-            chave_item = self.tbl_docs.item(row, 0)
-            if not chave_item:
-                continue
-            chave = chave_item.text().strip()
-            if not chave:
-                continue
-            entry = {}
-            for col, key in enumerate(
-                ["busca", "descricao", "nome_arvore", "tipo_externo", "nome_arvore_fixo"],
-                start=1,
-            ):
-                it = self.tbl_docs.item(row, col)
-                val = it.text().strip() if it else ""
-                if val:
-                    entry[key] = val
-            docs[chave] = entry
-        out["DOCUMENTOS"] = docs
+        return out
 
-        # Assinaturas
+    def _coletar_assinaturas(self):
         ass = []
         for row in range(self.tbl_ass.rowCount()):
             nome_item = self.tbl_ass.item(row, 0)
@@ -521,23 +601,31 @@ class TabConfiguracoes(QWidget):
             nome = nome_item.text().strip() if nome_item else ""
             cpf = cpf_item.text().strip() if cpf_item else ""
             if nome or cpf:
-                ass.append((nome, cpf))
-        out["ASSINATURAS_PLANILHA_PRECO"] = ass
-
-        # Template
-        out["DESPACHO_APROVACAO_TEMPLATE"] = self.txt_despacho.toPlainText()
-
-        return out
+                ass.append([nome, cpf])
+        return ass
 
     def _save(self):
         values = self._collect_values()
         try:
             config_manager.save_user_config(values)
-            config_manager.load_user_config()  # re-aplica no módulo config em memória
+            config_manager.load_user_config()
+
+            # Assinaturas voltam pro passo 'quadro_comparativo' antes de salvar o pipeline
+            ass = self._coletar_assinaturas()
+            for p in self._passos:
+                if p["id"] == "quadro_comparativo":
+                    p.setdefault("processor_config", {})["assinaturas"] = ass
+
+            erros = pipeline.validar_pipeline(self._passos)
+            if erros:
+                QMessageBox.warning(self, "Pipeline inválido", "\n".join(erros))
+                return
+            pipeline.salvar_pipeline(config.BASE_DIR, self._passos)
+
             self._mark_clean()
             QMessageBox.information(
                 self, "Configurações salvas",
-                "As configurações foram salvas em user_config.json.\n\n"
+                "As configurações e o pipeline foram salvos.\n\n"
                 "As mudanças valem a partir da próxima execução da automação."
             )
         except Exception as e:
@@ -546,15 +634,15 @@ class TabConfiguracoes(QWidget):
     def _restore_defaults(self):
         resp = QMessageBox.question(
             self, "Restaurar padrões",
-            "Isso vai apagar user_config.json e voltar a todos os valores originais "
-            "de config.py. Deseja continuar?",
+            "Isso apaga user_config.json e pipeline_config.json, voltando a todos "
+            "os valores e tipos de documento originais. Deseja continuar?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if resp != QMessageBox.Yes:
             return
         config_manager.reset_to_defaults()
+        pipeline.restaurar_pipeline_padrao(config.BASE_DIR)
 
-        # Recarrega o módulo config em memória — precisa reimportar
         import importlib
         import config as _cfg
         importlib.reload(_cfg)
@@ -566,14 +654,8 @@ class TabConfiguracoes(QWidget):
             "esteja coerente."
         )
 
-    def _open_json(self):
-        path = config_manager.USER_CONFIG_PATH
-        if not path.exists():
-            QMessageBox.information(
-                self, "Arquivo ainda não existe",
-                "O user_config.json só é criado quando você salva algo pela primeira vez."
-            )
-            return
+    def _open_config_folder(self):
+        path = config_manager.USER_CONFIG_PATH.parent
         try:
             if sys.platform.startswith("win"):
                 os.startfile(str(path))  # type: ignore
