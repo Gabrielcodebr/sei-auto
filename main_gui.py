@@ -1,3 +1,7 @@
+# Required Notice: Copyright 2026 Gabriel Code BR (https://github.com/Gabrielcodebr)
+# Licensed under the PolyForm Noncommercial License 1.0.0.
+# See the LICENSE file in the project root for the full text.
+
 """
 SEI Automation — Interface Gráfica (PySide6)
 
